@@ -41,9 +41,9 @@ fi.reinitialize_flow_field(wind_speed=8)
 fi.calculate_wake()
 
 for sim_time in range(total_time):
-
+    print("Iteration:", sim_time)
     if sim_time == 0:
-        fi.reinitialize_flow_field(wind_speed=10, sim_time=0)
+        fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
 
     fi.calculate_wake(sim_time=sim_time)
 
