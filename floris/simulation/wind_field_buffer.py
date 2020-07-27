@@ -2,8 +2,8 @@ import numpy as np
 import bisect
 
 class WindFieldBuffer():
-    def __init__(self, combination_function, num_turbines):
-        self.test = 0
+    def __init__(self, combination_function, num_turbines, number):
+        self.number = number
 
         self._future_wind_speeds = []
         self._current_wind_speed = None
@@ -186,8 +186,13 @@ class WindFieldBuffer():
             # corresponds to 
             new_u_wake = self._search_and_combine_u_wakes(self._current_wake_deficits[k], wake_dims, k, sim_time)
             old_u_wake = self._current_wake_deficits[k]
-            #print(new_u_wake is None and old_u_wake is None)
-            send_wake_temp = send_wake_temp or not(new_u_wake is None and old_u_wake is None and (np.array([new_u_wake == old_u_wake])).all())
+            # if self.number == 1:
+            #     print((np.array([new_u_wake == old_u_wake])).all())
+            #     print(new_u_wake)
+            #     print(old_u_wake)
+            #send_wake_temp = send_wake_temp or not(new_u_wake is None and old_u_wake is None and (np.array([new_u_wake == old_u_wake])).all())
+            send_wake_temp = send_wake_temp or not (np.array([new_u_wake == old_u_wake])).all()
+
             self._current_wake_deficits[k] = new_u_wake
 
         # combine the effects of all the turbines together
@@ -197,7 +202,6 @@ class WindFieldBuffer():
                 # the first element of the turb_u_wakes entry is the actual wake deficit contribution from the 
                 # turbine at that index
                 u_wake = self._combination_function(u_wake, self._current_wake_deficits[i])
-
         return (u_wake, send_wake or send_wake_temp)
 
     def initialize_wake_deficit(self, wake_deficit, index):
@@ -235,5 +239,7 @@ class WindFieldBuffer():
         self._future_wake_deficits[index].insert(slice_index, (new_wake_deficit, sim_time))
 
         self._future_wake_deficits[index] = self._future_wake_deficits[index][:slice_index+1]
+        #print("Turbine", self.number, "receives wake effect from Turbine", index, "at time", sim_time)
+        #print(new_wake_deficit)
 
         #self._future_wake_deficits[index].append((new_wake_deficit, sim_time))

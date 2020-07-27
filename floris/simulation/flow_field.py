@@ -68,6 +68,9 @@ class FlowField:
         # TODO consider remapping wake_list with reinitialize flow field
         self.wake_list = {turbine: None for _, turbine in self.turbine_map.items}
 
+        # boolean that keeps track of whether turbines have been initialized yet
+        self.initialized = False
+
     def _discretize_turbine_domain(self):
         """
         Create grid points at each turbine
@@ -584,6 +587,36 @@ class FlowField:
 
         self.wind_direction = new_wind_direction
 
+    def propagate_wake_effects(self, turb_u_wake, index, sim_time):
+        #self.wind_speed = old_wind_speed
+        # define the center of rotation with reference to 270 deg
+        center_of_rotation = Vec3(0, 0, 0)
+        # Rotate the turbines such that they are now in the frame of reference
+        # of the wind direction simpifying computing the wakes and wake overlap
+        rotated_map = self.turbine_map.rotated(
+            self.wind_map.turbine_wind_direction, center_of_rotation
+        )
+
+        # sort the turbine map
+        sorted_map = rotated_map.sorted_in_x_as_list()
+
+        input_wind_speed = self.wind_map.input_speed
+        #print(input_wind_speed)
+        # compare to the turbine that was furthest upstream in the old map
+        coord = sorted_map[index][0]
+        for i, (temp_coord,temp_turbine) in enumerate(sorted_map):
+            if len(input_wind_speed) == 1:
+                wind_speed = input_wind_speed[0]
+            else:
+                wind_speed = input_wind_speed[i]
+
+            if temp_coord.x1 > coord.x1:
+                x = temp_coord.x1 - coord.x1
+                U_inf = 10#wind_speed
+                tau = x / U_inf
+                delay = round(tau) + sim_time
+                temp_turbine.wind_field_buffer.add_wake_deficit(turb_u_wake, index, delay)
+
     def propagate_wind_speeds(self, old_input_wind_speed, new_wind_speed, sim_time):
         #self.wind_speed = old_wind_speed
         # define the center of rotation with reference to 270 deg
@@ -612,11 +645,11 @@ class FlowField:
                 U_inf = new_wind_speed
                 tau = x / U_inf
                 delay = round(tau) + sim_time
-                #print(temp_turbine.number, "given new wind speed", new_wind_speed, "at time", delay)
+                #print(temp_turbine.number, "given new wind speed", new_wind_speed, "at time", delay, ". Old wind speed was", old_wind_speed)
 
                 temp_turbine.wind_field_buffer.add_wind_speed(new_wind_speed, delay)
 
-    def calculate_wake(self, no_wake=False, points=None, track_n_upstream_wakes=False, sim_time=None):
+    def calculate_wake(self, no_wake=False, points=None, track_n_upstream_wakes=False, sim_time=None, look_ahead=False):
         """
         Updates the flow field based on turbine activity.
 
@@ -689,8 +722,11 @@ class FlowField:
         index = 0
 
         for coord, turbine in sorted_map:
-
-            (u_wake, turbine.send_wake) = turbine.wind_field_buffer.get_u_wake(np.shape(self.u), turbine.send_wake, sim_time)
+            if sim_time is not None and not look_ahead:
+                #print(turbine.number)
+                #print(turbine.send_wake)
+                (u_wake, turbine.send_wake) = turbine.wind_field_buffer.get_u_wake(np.shape(self.u), turbine.send_wake, sim_time)
+                #print(turbine.send_wake)
 
 
             xloc, yloc = np.array(rx == coord.x1), np.array(ry == coord.x2)
@@ -816,13 +852,19 @@ class FlowField:
 
             # combine this turbine's wake into the full wake field
             if not no_wake:
-                # if sim_time is not None:
-                #     if sim_time == 0:
-                #         for temp_coord, temp_turbine in sorted_map:
-                #             if temp_coord.x1 > coord.x1:
-                #                 temp_turbine.wind_field_buffer.initialize_wake_deficit(turb_u_wake, turbine.number)
-                # else:
-                u_wake = self.wake.combination_function(u_wake, turb_u_wake)
+                if sim_time is not None or look_ahead:
+                    if sim_time == 0 or (look_ahead and not self.initialized):
+                        for temp_coord, temp_turbine in sorted_map:
+                            if temp_coord.x1 > coord.x1:
+                                temp_turbine.wind_field_buffer.initialize_wake_deficit(turb_u_wake, turbine.number)
+
+                    if turbine.send_wake or look_ahead:
+                        self.propagate_wake_effects(turb_u_wake, turbine.number, sim_time)
+                        turbine.send_wake = False
+
+                    #if turbine.number == 1: print(turb_u_wake)
+                else:
+                    u_wake = self.wake.combination_function(u_wake, turb_u_wake)
 
                 if self.wake.velocity_model.model_string == "curl":
                     self.v = turb_v_wake
@@ -830,7 +872,7 @@ class FlowField:
                 else:
                     self.v = self.v + turb_v_wake
                     self.w = self.w + turb_w_wake
-
+            index += 1
         # apply the velocity deficit field to the freestream
         if not no_wake:
             self.u = self.u_initial - u_wake

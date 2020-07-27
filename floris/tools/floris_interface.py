@@ -64,7 +64,7 @@ class FlorisInterface(LoggerBase):
         self.input_file = input_file
         self.floris = Floris(input_file=input_file, input_dict=input_dict)
 
-        self.wind_speed_change = (False, 0.0)
+        self.wind_speed_change = False
         self.wind_dir_change = (False, 270.0)
 
         # initialize to zero, will be updated in reinitialize_flow_field
@@ -72,10 +72,10 @@ class FlorisInterface(LoggerBase):
         self.wind_dir_change_turb = [False for _ in self.floris.farm.turbines] # keeps track of when the wind direction shifts
         # make sure that each turbine has a WindFieldBuffer object
         for i,turbine in enumerate(self.floris.farm.turbines):
-            if not hasattr(turbine, 'wind_field_buffer'):
-                turbine.wind_field_buffer = WindFieldBuffer(self.floris.farm.flow_field.wake.combination_function, len(self.floris.farm.turbines))
             if not hasattr(turbine, 'number'):
                 turbine.number = i
+            if not hasattr(turbine, 'wind_field_buffer'):
+                turbine.wind_field_buffer = WindFieldBuffer(self.floris.farm.flow_field.wake.combination_function, len(self.floris.farm.turbines), turbine.number)
 
     def calculate_wake(
         self, yaw_angles=None, no_wake=False, points=None, track_n_upstream_wakes=False, sim_time=None
@@ -125,8 +125,9 @@ class FlorisInterface(LoggerBase):
 
         input_speed = []
         wind_map = self.floris.farm.wind_map
-
+        #if sim_time == 0: print(wind_map.input_speed)
         for i, turbine in enumerate(self.floris.farm.turbines):
+            #print(turbine.number)
             if len(wind_map.input_speed) == 1:
                 wind_speed = wind_map.input_speed[0]
             else:
@@ -136,11 +137,15 @@ class FlorisInterface(LoggerBase):
 
             input_speed.append(wind_speed)
 
+        if self.wind_speed_change:
+            self.floris.farm.flow_field.calculate_wake(sim_time=sim_time, look_ahead=True)
+            self.wind_speed_change = False
+
         if sim_time is not None:
-            self.reinitialize_flow_field(wind_speed=input_speed)
+            self.reinitialize_flow_field(wind_speed=input_speed, wind_layout=[ [0, 100.0], [0, 0] ])
             # wind_map.input_speed = input_speed
             # wind_map.calculate_wind_speed()
-            print("Input speed:", input_speed)
+            # print("Input speed:", input_speed)
             # if yaw_angles is not None:
             #     self.floris.farm.set_yaw_angles(yaw_angles)
 
@@ -229,7 +234,7 @@ class FlorisInterface(LoggerBase):
                     wind_speed if isinstance(wind_speed, list) else [wind_speed]
                 )
                 if not isinstance(wind_speed, list) and sim_time is not None: 
-                    self.wind_speed_change = (True, self.floris.farm.wind_map.input_speed)
+                    self.wind_speed_change = True
             if wind_direction is None:
                 wind_direction = wind_map.input_direction
             else:
@@ -264,7 +269,7 @@ class FlorisInterface(LoggerBase):
                 # If not a list, convert to list
                 # TODO: What if tuple? Or
                 if not isinstance(wind_speed, list) and sim_time is not None: 
-                    self.wind_speed_change = (True, self.floris.farm.wind_map.input_speed)
+                    self.wind_speed_change = True
                     self.floris.farm.flow_field.propagate_wind_speeds(self.floris.farm.wind_map.input_speed, wind_speed, sim_time)
                 wind_speed = (
                     wind_speed if isinstance(wind_speed, list) else [wind_speed]
@@ -309,8 +314,8 @@ class FlorisInterface(LoggerBase):
             wind_map=self.floris.farm.wind_map,
         )
 
-        for turbine in self.floris.farm.turbines:
-            print(turbine.number)
+        # for turbine in self.floris.farm.turbines:
+        #     print(turbine.number)
 
     def get_plane_of_points(
         self,
