@@ -645,7 +645,6 @@ class FlowField:
                 U_inf = new_wind_speed
                 tau = x / U_inf
                 delay = round(tau) + sim_time
-                #print(temp_turbine.number, "given new wind speed", new_wind_speed, "at time", delay, ". Old wind speed was", old_wind_speed)
 
                 temp_turbine.wind_field_buffer.add_wind_speed(new_wind_speed, delay)
 
