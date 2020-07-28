@@ -17,11 +17,18 @@ import matplotlib.pyplot as plt
 
 import floris.tools as wfct
 
+angle_changes = {250:[10,0,0], 500:[10,10,0], 750:[20,10,0], 1000:[20,20,0]}
 
 # Initialize the FLORIS interface fi
 # For basic usage, the florice interface provides a simplified interface to
 # the underlying classes
 fi = wfct.floris_interface.FlorisInterface("./example_input.json")
+
+# D = fi.floris.farm.turbines[0].rotor_diameter
+# print(D)
+# layout_x = [0, 7 * D]
+# layout_y = [0, 0]
+# fi.reinitialize_flow_field(layout_array=(layout_x, layout_y))
 
 # Calculate wake
 fi.calculate_wake()
@@ -31,24 +38,30 @@ hor_plane = fi.get_hor_plane()
 
 powers = []
 true_powers = []
-total_time = 15
+total_time = 300
 
-fi.reinitialize_flow_field(wind_speed=10)
-fi.calculate_wake()
-true_power = fi.get_farm_power()/1e6
+# turb_0_yaw = 20
 
-fi.reinitialize_flow_field(wind_speed=8)
-fi.calculate_wake()
+# fi.reinitialize_flow_field(wind_speed=8)
+# fi.calculate_wake(yaw_angles=[turb_0_yaw,0])
+# true_power = fi.get_farm_power()/1e6
+
+# fi.calculate_wake()
+
+yaw_angles = [0 for turbine in fi.floris.farm.turbines]
 
 for sim_time in range(total_time):
-
-    if sim_time == 0:
+    print("Iteration:", sim_time)
+    if sim_time == 10:
         fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
+    if sim_time == 11:
+        fi.reinitialize_flow_field(wind_speed=7, sim_time=sim_time)
 
     fi.calculate_wake(sim_time=sim_time)
-
     powers.append(fi.get_farm_power()/1e6)
-    true_powers.append(true_power)
+    
+    fi.calculate_wake()
+    true_powers.append(fi.get_farm_power()/1e6)
 
 # Plot and show
 fig, ax = plt.subplots()
