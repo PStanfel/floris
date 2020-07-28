@@ -20,12 +20,19 @@ class WindFieldBuffer():
     def add_wind_direction(self, old_wind_direction, new_wind_direction, sim_time, old_coord):
         self._future_wind_dirs.append((old_wind_direction, new_wind_direction, sim_time, old_coord))
 
-    def add_wind_speed(self, new_wind_speed, sim_time):
+    def add_wind_speed(self, new_wind_speed, delayed_time):
+        """
+        This method is intended to add a new wind speed to the buffer.
 
+        Args:
+            new_wind_speed: Wind speed that should be added to the buffer (float).
+
+            delayed_time: Simulation time that the wind speed should go into effect at (int).
+        """
         # NOTE: I think bisect_left is the correct choice, maybe bisect_right
-        slice_index = bisect.bisect_left([wind_speed[1] for wind_speed in self._future_wind_speeds], sim_time)
+        slice_index = bisect.bisect_left([wind_speed[1] for wind_speed in self._future_wind_speeds], delayed_time)
 
-        self._future_wind_speeds.insert(slice_index, (new_wind_speed, sim_time))
+        self._future_wind_speeds.insert(slice_index, (new_wind_speed, delayed_time))
 
         self._future_wind_speeds = self._future_wind_speeds[:slice_index+1]
 
@@ -36,7 +43,9 @@ class WindFieldBuffer():
         This method is intended to set the initial wind speed if it is not already set.
 
         Args:
-            wind_speed: Wind speed in degrees relative to 270 to be initialized (float).
+            old_wind_speed: Wind speed that non-overwritten turbines should be set to if current wind speed is None (float).
+
+            new_wind_speed: Wind speed that overwritten turbine should be set to (float).
 
             overwrite: Whether or not the current wind speed should be overwritten (boolean).
         """
@@ -50,6 +59,7 @@ class WindFieldBuffer():
     def initialize_wind_direction(self, wind_direction, coord, overwrite=False):
         """
         This method is intended to set the initial wind direction if it is not already set.
+        NOTE: This method is currently not implemented correctly.
 
         Args:
             wind_direction: Wind direction in degrees relative to 270 to be initialized (float).
@@ -74,20 +84,16 @@ class WindFieldBuffer():
         Method to determine what wind direction the flow field should be set to.
 
         Args:
-            wind_direction: Wind direction in degrees relative to 270 that the farm should be set to
-                if there are no wind directions stored in the internal buffer (float).
+            wind_direction: Wind direction in degrees relative to 270 that the farm should be set to if there are no wind directions stored in the internal buffer (float).
 
-            coord: Turbine coord that should be set if there are no wind directions stored in the
-                internal buffer.
+            coord: Turbine coord that should be set if there are no wind directions stored in the internal buffer.
 
-            send_wake: Variable specifying whether or not the turbine currently should 
-                propagate its wake downstream.
+            send_wake: Variable specifying whether or not the turbine currently should propagate its wake downstream.
 
             sim_time: Current simulation time (int).
 
         Returns:
-            Tuple of wind direction setpoint, coordinate setpoint, and send_wake, a boolean that
-                signifies whether or not a turbine needs to propagate its wake downstream.
+            Tuple of wind direction setpoint, coordinate setpoint, and send_wake, a boolean that signifies whether or not a turbine needs to propagate its wake downstream.
         """
 
         if len(self._future_wind_dirs) > 0 and self._future_wind_dirs[0][1] == sim_time:
@@ -113,16 +119,14 @@ class WindFieldBuffer():
 
         Args:
             wind_speed: Wind speed that the farm should be set to
-                if there are no wind speeds stored in the internal buffer (float).
+            if there are no wind speeds stored in the internal buffer (float).
 
-            send_wake: Variable specifying whether or not the turbine currently should 
-                propagate its wake downstream.
+            send_wake: Variable specifying whether or not the turbine currently should propagate its wake downstream (boolean).
 
             sim_time: Current simulation time (int).
 
         Returns:
-            Tuple of wind direction setpoint, coordinate setpoint, and send_wake, a boolean that
-                signifies whether or not a turbine needs to propagate its wake downstream.
+            Tuple of wind direction setpoint, coordinate setpoint, and send_wake, a boolean that signifies whether or not a turbine needs to propagate its wake downstream.
         """
 
         if len(self._future_wind_speeds) > 0 and self._future_wind_speeds[0][1] == sim_time:
@@ -144,8 +148,7 @@ class WindFieldBuffer():
         Finds all wake deficits at a given simulation time in the buffer and averages them.
 
         Args:
-            wake_deficit: Wake deficit that should be used if there are no wake deficits in 
-                the buffer.
+            wake_deficit: Wake deficit that should be used if there are no wake deficits in the buffer (np array).
             
             wake_dims: Dimensions of the wake deficit matrix (tuple).
 
@@ -172,8 +175,7 @@ class WindFieldBuffer():
         Args:
             wake_dims: Dimensions of the wake deficit matrix (tuple, ints)
 
-            send_wake: Variable specifying whether or not the turbine currently should 
-                propagate its wake downstream.
+            send_wake: Variable specifying whether or not the turbine currently should propagate its wake downstream (boolean).
 
             sim_time: Current simulation time (int).
         """
@@ -208,6 +210,11 @@ class WindFieldBuffer():
         """
         This method is intended to set an initial wake deficit after the most upstream turbine has determined its
         wake deficit.
+
+        Args:
+            wake_deficit: The wake deficit that the agent should be initialized with (np array)
+
+            index: The index of the wake deficit buffer the wake deficit should be added at (this corresponds to which turbine number caused the wake) (int).
         """
 
         # for el in self._current_wake_deficits:
@@ -220,26 +227,26 @@ class WindFieldBuffer():
 
         #print(self._current_wake_deficits)
 
-    def add_wake_deficit(self, new_wake_deficit, index, sim_time):
+    def add_wake_deficit(self, new_wake_deficit, index, delayed_time):
         """
         This method is intended to add wake deficit matrices into the buffer. 
 
         Args:
-            wake_effect: The wake effect to be added (np array).
+            new_wake_deficit: The new wake deficit to be added (np array).
 
-            index: The index of the wake deficit buffer the wake effect should be added at (this
-                corresponds to which turbine number caused the wake) (int).
+            index: The index of the wake deficit buffer the wake deficit should be added at (this corresponds to which turbine number caused the wake) (int).
 
-            sim_time: The simulation time that the wake should come into effect at (int).
+            delayed_time: The simulation time that the wake should come into effect at (int).
         """
 
         # NOTE: I think bisect_left is the correct choice, maybe bisect_right
-        slice_index = bisect.bisect_left([wake_deficit[1] for wake_deficit in self._future_wake_deficits[index]], sim_time)
+        slice_index = bisect.bisect_left([wake_deficit[1] for wake_deficit in self._future_wake_deficits[index]], delayed_time)
 
-        self._future_wake_deficits[index].insert(slice_index, (new_wake_deficit, sim_time))
+        self._future_wake_deficits[index].insert(slice_index, (new_wake_deficit, delayed_time))
 
         self._future_wake_deficits[index] = self._future_wake_deficits[index][:slice_index+1]
         #print("Turbine", self.number, "receives wake effect from Turbine", index, "at time", sim_time)
         #print(new_wake_deficit)
 
+        # the below line does not include any checking to make sure that there are no earlier-time wake effects already in the buffer
         #self._future_wake_deficits[index].append((new_wake_deficit, sim_time))

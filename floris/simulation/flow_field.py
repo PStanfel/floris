@@ -604,15 +604,18 @@ class FlowField:
         #print(input_wind_speed)
         # compare to the turbine that was furthest upstream in the old map
         coord = sorted_map[index][0]
+
+        # this assumes that the most upstream turbine relative to the wind direction experiences the wind speed change first
+        wind_speed = input_wind_speed[0]
         for i, (temp_coord,temp_turbine) in enumerate(sorted_map):
-            if len(input_wind_speed) == 1:
-                wind_speed = input_wind_speed[0]
-            else:
-                wind_speed = input_wind_speed[i]
+            # if len(input_wind_speed) == 1:
+            #     wind_speed = input_wind_speed[0]
+            # else:
+            #     wind_speed = input_wind_speed[i]
 
             if temp_coord.x1 > coord.x1:
                 x = temp_coord.x1 - coord.x1
-                U_inf = 10#wind_speed
+                U_inf = wind_speed
                 tau = x / U_inf
                 delay = round(tau) + sim_time
                 temp_turbine.wind_field_buffer.add_wake_deficit(turb_u_wake, index, delay)

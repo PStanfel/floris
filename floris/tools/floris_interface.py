@@ -67,6 +67,9 @@ class FlorisInterface(LoggerBase):
         self.wind_speed_change = False
         self.wind_dir_change = (False, 270.0)
 
+        # keeps track of steady-state conditions so that steady-state can be evaluated alongside dynamic
+        self.steady_state_wind = None
+
         # initialize to zero, will be updated in reinitialize_flow_field
         self.wind_dir_shift = 0
         self.wind_dir_change_turb = [False for _ in self.floris.farm.turbines] # keeps track of when the wind direction shifts
@@ -142,12 +145,15 @@ class FlorisInterface(LoggerBase):
             self.wind_speed_change = False
 
         if sim_time is not None:
-            self.reinitialize_flow_field(wind_speed=input_speed, wind_layout=[ [0, 100.0], [0, 0] ])
+            #BUG: can't hardcode in the wind layout
+            self.reinitialize_flow_field(wind_speed=input_speed, wind_layout=[ [0, 882.0], [0, 0] ], steady_state=False)
             # wind_map.input_speed = input_speed
             # wind_map.calculate_wind_speed()
             # print("Input speed:", input_speed)
             # if yaw_angles is not None:
             #     self.floris.farm.set_yaw_angles(yaw_angles)
+        else:
+            self.reinitialize_flow_field(wind_speed=self.steady_state_wind, wind_layout=[ [0, 882.0], [0, 0] ])
 
         self.floris.farm.flow_field.calculate_wake(
             no_wake=no_wake,
@@ -170,7 +176,8 @@ class FlorisInterface(LoggerBase):
         wake=None,
         layout_array=None,
         with_resolution=None,
-        sim_time=None
+        sim_time=None,
+        steady_state=True
     ):
         """
         Wrapper to :py:meth:`~.flow_field.reinitialize_flow_field`. All input
@@ -302,6 +309,9 @@ class FlorisInterface(LoggerBase):
 
             # redefine wind_map in Farm object
             self.floris.farm.wind_map = wind_map
+
+        if steady_state:
+            self.steady_state_wind = self.floris.farm.wind_map.input_speed
 
         self.floris.farm.flow_field.reinitialize_flow_field(
             wind_shear=wind_shear,
