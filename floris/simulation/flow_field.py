@@ -728,7 +728,6 @@ class FlowField:
                 #print(turbine.number)
                 #print(turbine.send_wake)
                 (u_wake, turbine.send_wake) = turbine.wind_field_buffer.get_u_wake(np.shape(self.u), turbine.send_wake, sim_time)
-                #print(turbine.send_wake)
 
 
             xloc, yloc = np.array(rx == coord.x1), np.array(ry == coord.x2)
@@ -859,14 +858,16 @@ class FlowField:
                         for temp_coord, temp_turbine in sorted_map:
                             if temp_coord.x1 > coord.x1:
                                 temp_turbine.wind_field_buffer.initialize_wake_deficit(turb_u_wake, turbine.number)
+                                self.initialized = True
 
-                    if turbine.send_wake or look_ahead:
+                    if turbine.send_wake or (look_ahead and sim_time is not None):
                         self.propagate_wake_effects(turb_u_wake, turbine.number, sim_time)
                         turbine.send_wake = False
 
                     #if turbine.number == 1: print(turb_u_wake)
                 else:
                     u_wake = self.wake.combination_function(u_wake, turb_u_wake)
+                    #if turbine.number == 0: print(turb_u_wake)
 
                 if self.wake.velocity_model.model_string == "curl":
                     self.v = turb_v_wake
