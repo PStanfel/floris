@@ -25,9 +25,8 @@ angle_changes = {250:[10,0,0], 500:[10,10,0], 750:[20,10,0], 1000:[20,20,0]}
 fi = wfct.floris_interface.FlorisInterface("./example_input.json")
 
 # D = fi.floris.farm.turbines[0].rotor_diameter
-# print(D)
-# layout_x = [0, 7 * D]
-# layout_y = [0, 0]
+# layout_x = [0, 7 * D, 14 * D]
+# layout_y = [0, 0, 0]
 # fi.reinitialize_flow_field(layout_array=(layout_x, layout_y))
 
 # Calculate wake
@@ -38,7 +37,7 @@ hor_plane = fi.get_hor_plane()
 
 powers = []
 true_powers = []
-total_time = 300
+total_time = 15
 
 # turb_0_yaw = 20
 
@@ -50,16 +49,21 @@ total_time = 300
 
 yaw_angles = [0 for turbine in fi.floris.farm.turbines]
 
+turbine_velocities = []
+
 for sim_time in range(total_time):
     print("Iteration:", sim_time)
-    if sim_time == 10:
+    if sim_time == 1:
         fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
-    if sim_time == 11:
-        fi.reinitialize_flow_field(wind_speed=7, sim_time=sim_time)
+    # if sim_time == 11:
+    #     fi.reinitialize_flow_field(wind_speed=7, sim_time=sim_time)
 
+    
     fi.calculate_wake(sim_time=sim_time)
     powers.append(fi.get_farm_power()/1e6)
     
+    velocity = fi.floris.farm.turbines[1].average_velocity
+    turbine_velocities.append(velocity)
     fi.calculate_wake()
     true_powers.append(fi.get_farm_power()/1e6)
 
@@ -70,6 +74,7 @@ wfct.visualization.visualize_cut_plane(hor_plane, ax=ax)
 plt.figure()
 
 plt.plot(list(range(total_time)), powers, label="Dynamic")
+#plt.plot(list(range(total_time)), turbine_velocities)
 plt.plot(list(range(total_time)), true_powers, label="Steady-State")
 plt.legend()
 plt.xlabel("Time (s)")
