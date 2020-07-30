@@ -146,14 +146,10 @@ class FlorisInterface(LoggerBase):
 
         if sim_time is not None:
             #BUG: can't hardcode in the wind layout
-            self.reinitialize_flow_field(wind_speed=input_speed, wind_layout=[ [0, 882.0], [0, 0] ], steady_state=False)
-            # wind_map.input_speed = input_speed
-            # wind_map.calculate_wind_speed()
-            # print("Input speed:", input_speed)
-            # if yaw_angles is not None:
-            #     self.floris.farm.set_yaw_angles(yaw_angles)
+            self.reinitialize_flow_field(wind_speed=input_speed, steady_state=False)#wind_layout=[ [0, 882.0], [0, 0] ], steady_state=False)
+
         else:
-            self.reinitialize_flow_field(wind_speed=self.steady_state_wind, wind_layout=[ [0, 882.0], [0, 0] ])
+            self.reinitialize_flow_field(wind_speed=self.steady_state_wind)#, wind_layout=[ [0, 882.0], [0, 0] ])
 
         self.floris.farm.flow_field.calculate_wake(
             no_wake=no_wake,
@@ -162,6 +158,7 @@ class FlorisInterface(LoggerBase):
             sim_time=sim_time
         )
 
+        return yaw_angles
     def reinitialize_flow_field(
         self,
         wind_speed=None,
