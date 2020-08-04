@@ -2,20 +2,31 @@ import numpy as np
 import bisect
 
 class WindFieldBuffer():
-    def __init__(self, combination_function, num_turbines, number):
+    def __init__(self, combination_function=None, num_turbines=None, number=None, x=None, y=None, z=None):
         self.number = number
 
-        self._future_wind_speeds = []
-        self._current_wind_speed = None
+        if x is not None and y is not None and z is not None:
+            # dims is interpreted as (num_x, num_y, num_z) with num_x, num_y, and num_z representing the number of points at which wind speed is desired to be measured at
+            dims = np.shape(x)
 
-        self._future_wind_dirs = []
-        self._current_wind_dir = None
-        self._current_coord = None
+            self.x = x
+            self.y = y
+            self.z = z
 
-        self._future_wake_deficits = [ [] for _ in range(num_turbines) ]
-        self._current_wake_deficits = [ None for _ in range(num_turbines) ]
+            self._wind_field_speeds = [ [ [ [] for el1 in range(dims[2])] for el2 in range(dims[1]) ] for el3 in range(dims[0]) ]
 
-        self._combination_function = combination_function
+        if combination_function is not None:
+            self._future_wind_speeds = []
+            self._current_wind_speed = None
+
+            self._future_wind_dirs = []
+            self._current_wind_dir = None
+            self._current_coord = None
+
+            self._future_wake_deficits = [ [] for _ in range(num_turbines) ]
+            self._current_wake_deficits = [ None for _ in range(num_turbines) ]
+
+            self._combination_function = combination_function
 
     def add_wind_direction(self, old_wind_direction, new_wind_direction, sim_time, old_coord):
         self._future_wind_dirs.append((old_wind_direction, new_wind_direction, sim_time, old_coord))

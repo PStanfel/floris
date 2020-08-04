@@ -321,8 +321,7 @@ class FlorisInterface(LoggerBase):
             wind_map=self.floris.farm.wind_map,
         )
 
-        # for turbine in self.floris.farm.turbines:
-        #     print(turbine.number)
+
 
     def get_plane_of_points(
         self,

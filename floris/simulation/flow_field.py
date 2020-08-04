@@ -16,6 +16,7 @@
 import numpy as np
 import scipy as sp
 from scipy.interpolate import griddata
+from floris.simulation.wind_field_buffer import WindFieldBuffer
 
 from ..utilities import Vec3, cosd, sind, tand
 
@@ -248,6 +249,10 @@ class FlowField:
         self.u = self.u_initial.copy()
         self.v = self.v_initial.copy()
         self.w = self.w_initial.copy()
+
+        # adding code to create wind field buffer object here
+        if not hasattr(self.wind_map, "wind_field_buffer"):
+            self.wind_map.wind_field_buffer = WindFieldBuffer(x=self.x, y=self.y, z=self.z)
 
     def _compute_turbine_velocity_deficit(
         self, x, y, z, turbine, coord, deflection, flow_field
