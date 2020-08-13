@@ -119,8 +119,8 @@ class FlorisInterface(LoggerBase):
                 #print(yaw_angles)
                 # this list keeps track of which yaw angles have changed
                 angle_changes = [not prev==now for prev,now in zip(prev_yaw_angles, yaw_angles)]
-                for i,turbine in enumerate(self.floris.farm.turbines):
-                    turbine.send_wake = angle_changes[i]
+                # for i,turbine in enumerate(self.floris.farm.turbines):
+                #     turbine.send_wake = angle_changes[i]
                 self.floris.farm.set_yaw_angles(yaw_angles)
                 #print(angle_changes)
                 #if any(angle_changes): print(angle_changes)
@@ -146,7 +146,7 @@ class FlorisInterface(LoggerBase):
 
             input_speed.append(wind_speed)
 
-        if (self.wind_speed_change and sim_time is not None) or sim_time == 0:
+        if (self.wind_speed_change and sim_time is not None) or (sim_time is not None and any(angle_changes)) or sim_time == 0:
             self.floris.farm.flow_field.calculate_wake(look_ahead=True, sim_time=sim_time, propagate_wind_speed=self.propagate_wind_speed, first_x=self.first_x)
             self.wind_speed_change = False
 
