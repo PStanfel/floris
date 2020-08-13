@@ -162,9 +162,9 @@ def visualize_cut_plane(
     im = ax.pcolormesh(x1_mesh, x2_mesh, Zm, cmap=cmap, vmin=minSpeed, vmax=maxSpeed)
 
     # Add line contour
-    line_contour_cut_plane(
-        cut_plane, ax=ax, levels=levels, colors="w", linewidths=0.8, alpha=0.3
-    )
+    # line_contour_cut_plane(
+    #     cut_plane, ax=ax, levels=levels, colors="w", linewidths=0.8, alpha=0.3
+    # )
 
     # Make equal axis
     ax.set_aspect("equal")
