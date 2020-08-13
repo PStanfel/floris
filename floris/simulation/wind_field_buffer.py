@@ -13,7 +13,9 @@ class WindFieldBuffer():
             self.y = y
             self.z = z
 
-            self._wind_field_speeds = [ [ [ [] for el1 in range(dims[2])] for el2 in range(dims[1]) ] for el3 in range(dims[0]) ]
+            self._future_wind_field_speeds = [ [ [ [] for el1 in range(dims[2])] for el2 in range(dims[1]) ] for el3 in range(dims[0]) ]
+
+            self._current_wind_field_speeds = [ [ [ None for el1 in range(dims[2])] for el2 in range(dims[1]) ] for el3 in range(dims[0]) ]
 
         if combination_function is not None:
             self._future_wind_speeds = []
@@ -27,6 +29,65 @@ class WindFieldBuffer():
             self._current_wake_deficits = [ None for _ in range(num_turbines) ]
 
             self._combination_function = combination_function
+
+    def _add_to_wind_field_buffer(self, wind_speed, indices, delay, sim_time):
+        i = indices[0]
+        j = indices[1]
+        k = indices[2]
+        old_wind_speed = self._current_wind_field_speeds[i][j][k]
+        test_tuple = (wind_speed, delay+sim_time)
+        #print("Delay:", delay)
+        # for _ in range(delay):
+        #     self._future_wind_field_speeds[i][j][k].append(old_wind_speed)
+
+        delayed_time = delay + sim_time
+
+        slice_index = bisect.bisect_left([wind_field[1] for wind_field in self._future_wind_field_speeds[i][j][k]], delayed_time)
+
+        self._future_wind_field_speeds[i][j][k].insert(slice_index, (wind_speed, delayed_time))
+
+        self._future_wind_field_speeds[i][j][k] = self._future_wind_field_speeds[i][j][k][:slice_index+1]
+
+        #self._future_wind_field_speeds[i][j][k].append(wind_speed)
+        #self._future_wind_field_speeds[i][j][k].append(test_tuple)
+        #print(self._future_wind_field_speeds[i][j][k])
+
+    def add_wind_field(self, new_wind_field, propagate_wind_speed, sim_time):
+        # add a new wind field to the buffer
+        first_x = np.min(self.x)#self.x[0][0][0]
+        for i in range(len(new_wind_field)):
+            for j in range(len(new_wind_field[i])):
+                for k in range(len(new_wind_field[i][j])):
+
+                    new_wind_speed = new_wind_field[i][j][k]
+
+                    if propagate_wind_speed is None:
+                        self._current_wind_field_speeds[i][j][k] = new_wind_speed
+                    else:
+                        diff_x = self.x[i][j][k] - first_x
+                        delay = round(diff_x / propagate_wind_speed)
+                        delay = int(delay)
+                        self._add_to_wind_field_buffer(new_wind_speed, (i,j,k), delay, sim_time)
+        return first_x
+
+    def get_wind_field(self, sim_time):
+
+        for i in range(len(self._current_wind_field_speeds)):
+            for j in range(len(self._current_wind_field_speeds[i])):
+                for k in range(len(self._current_wind_field_speeds[i][j])):
+                    # if len(self._future_wind_field_speeds[i][j][k]) > 0:
+                    #     self._current_wind_field_speeds[i][j][k] = self._future_wind_field_speeds[i][j][k][0][1]
+
+                    #     self._future_wind_field_speeds[i][j][k].pop(0)
+                    #     #print(temp)
+                    #     #print(self._future_wind_field_speeds[i][j][k])
+                    if len(self._future_wind_field_speeds[i][j][k]) > 0 and self._future_wind_field_speeds[i][j][k][0][1] == sim_time:
+                        self._current_wind_field_speeds[i][j][k] = self._future_wind_field_speeds[i][j][k][0][0]
+
+                        self._future_wind_field_speeds[i][j][k].pop(0)
+
+
+        return np.array(self._current_wind_field_speeds)
 
     def add_wind_direction(self, old_wind_direction, new_wind_direction, sim_time, old_coord):
         self._future_wind_dirs.append((old_wind_direction, new_wind_direction, sim_time, old_coord))
@@ -64,7 +125,7 @@ class WindFieldBuffer():
             self._current_wind_speed = old_wind_speed
         elif overwrite:
             self._current_wind_speed = new_wind_speed
-        #print("Called initialize_wind_speed, current wind speed is", self._current_wind_speed)
+        #print(self.number, "called initialize_wind_speed, current wind speed is", self._current_wind_speed)
         return
 
     def initialize_wind_direction(self, wind_direction, coord, overwrite=False):
@@ -141,7 +202,7 @@ class WindFieldBuffer():
         """
 
         if len(self._future_wind_speeds) > 0 and self._future_wind_speeds[0][1] == sim_time:
-            send_wake_temp = True
+            send_wake_temp = False#True
             self._current_wind_speed = self._future_wind_speeds[0][0]
             self._future_wind_speeds.pop(0)
         else:
@@ -204,7 +265,7 @@ class WindFieldBuffer():
             #     print(new_u_wake)
             #     print(old_u_wake)
             #send_wake_temp = send_wake_temp or not(new_u_wake is None and old_u_wake is None and (np.array([new_u_wake == old_u_wake])).all())
-            send_wake_temp = send_wake_temp or not (np.array([new_u_wake == old_u_wake])).all()
+            #send_wake_temp = send_wake_temp or not (np.array([new_u_wake == old_u_wake])).all()
 
             self._current_wake_deficits[k] = new_u_wake
 
@@ -236,6 +297,8 @@ class WindFieldBuffer():
             
             self._current_wake_deficits[index] = wake_deficit
 
+            #print(self.number, "initializes wake deficit.")
+
         #print(self._current_wake_deficits)
 
     def add_wake_deficit(self, new_wake_deficit, index, delayed_time):
@@ -256,6 +319,8 @@ class WindFieldBuffer():
         self._future_wake_deficits[index].insert(slice_index, (new_wake_deficit, delayed_time))
 
         self._future_wake_deficits[index] = self._future_wake_deficits[index][:slice_index+1]
+
+        #print("wake deficit added at time", delayed_time)
         #print("Turbine", self.number, "receives wake effect from Turbine", index, "at time", sim_time)
         #print(new_wake_deficit)
 

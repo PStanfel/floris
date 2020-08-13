@@ -281,7 +281,7 @@ class Turbine(LoggerBase):
         return x_array, y_array, z_array
 
     def update_velocities(
-        self, u_wake, coord, flow_field, rotated_x, rotated_y, rotated_z
+        self, u_wake, coord, flow_field, rotated_x, rotated_y, rotated_z, known_global=False
     ):
         """
         This method updates the velocities at the rotor swept area grid
@@ -299,12 +299,18 @@ class Turbine(LoggerBase):
                 rotated so the new x axis is aligned with the wind direction.
             rotated_z (np.array): The z-coordinates of the flow field grid
                 rotated so the new x axis is aligned with the wind direction.
+            known_global (boolean): Specifies whether u_wake should be treated as local wake information or as the global wind field
         """
         # reset the waked velocities
-        local_wind_speed = flow_field.u_initial - u_wake
+        if not known_global:
+            local_wind_speed = flow_field.u_initial - u_wake
+        else:
+            local_wind_speed = u_wake
+        #print("local_wind_speed:\n", local_wind_speed)
         self.velocities = self.calculate_swept_area_velocities(
             local_wind_speed, coord, rotated_x, rotated_y, rotated_z
         )
+        #print(self.velocities)
 
     def reset_velocities(self):
         """
@@ -568,7 +574,7 @@ class Turbine(LoggerBase):
         # Compute the yaw effective velocity
         pW = self.pP / 3.0  # Convert from pP to w
         yaw_effective_velocity = self.average_velocity * cosd(self.yaw_angle) ** pW
-
+        #print("yaw_effective_velocity:", yaw_effective_velocity)
         # Now compute the power
         cptmp = self.Cp  # Note Cp is also now based on yaw effective velocity
         return (

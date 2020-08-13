@@ -73,6 +73,12 @@ class FlorisInterface(LoggerBase):
         # initialize to zero, will be updated in reinitialize_flow_field
         self.wind_dir_shift = 0
         self.wind_dir_change_turb = [False for _ in self.floris.farm.turbines] # keeps track of when the wind direction shifts
+
+        self.propagate_wind_speed = None
+
+        # data member to keep track of which coordinate should be used for determining wake delays
+        self.first_x = None
+
         # make sure that each turbine has a WindFieldBuffer object
         for i,turbine in enumerate(self.floris.farm.turbines):
             if not hasattr(turbine, 'number'):
@@ -140,14 +146,13 @@ class FlorisInterface(LoggerBase):
 
             input_speed.append(wind_speed)
 
-        if self.wind_speed_change:
-            self.floris.farm.flow_field.calculate_wake(sim_time=sim_time, look_ahead=True)
+        if (self.wind_speed_change and sim_time is not None) or sim_time == 0:
+            self.floris.farm.flow_field.calculate_wake(look_ahead=True, sim_time=sim_time, propagate_wind_speed=self.propagate_wind_speed, first_x=self.first_x)
             self.wind_speed_change = False
 
         if sim_time is not None:
             #BUG: can't hardcode in the wind layout
             self.reinitialize_flow_field(wind_speed=input_speed, steady_state=False)#wind_layout=[ [0, 882.0], [0, 0] ], steady_state=False)
-
         else:
             self.reinitialize_flow_field(wind_speed=self.steady_state_wind)#, wind_layout=[ [0, 882.0], [0, 0] ])
 
@@ -216,6 +221,16 @@ class FlorisInterface(LoggerBase):
                 wind_map.input_speed
             turbulence_intensity = self.TKE_to_TI(turbulence_kinetic_energy, wind_speed)
 
+        if not isinstance(wind_speed, list) and sim_time is not None: 
+                    self.wind_speed_change = True
+                    self.propagate_wind_speed = wind_speed
+                    self.floris.farm.flow_field.propagate_wind_speeds(self.floris.farm.wind_map.input_speed, wind_speed, sim_time, first_x=self.first_x)
+
+                    # this will signal that the next time a visualization is required, the wake will need to be recalculated
+                    if hasattr(self, "vis_flow_field"):
+                        self.vis_flow_field.wind_change_resolved = False
+                        self.vis_flow_field.wind_map.input_speed = [wind_speed]
+
         if wind_layout or layout_array is not None:
             # Build turbine map and wind map (convenience layer for user)
             if layout_array is None:
@@ -237,8 +252,9 @@ class FlorisInterface(LoggerBase):
                 wind_speed = (
                     wind_speed if isinstance(wind_speed, list) else [wind_speed]
                 )
-                if not isinstance(wind_speed, list) and sim_time is not None: 
-                    self.wind_speed_change = True
+                # if not isinstance(wind_speed, list) and sim_time is not None: 
+                #     self.wind_speed_change = True
+                #     self.propagate_wind_speed = wind_speed
             if wind_direction is None:
                 wind_direction = wind_map.input_direction
             else:
@@ -270,11 +286,14 @@ class FlorisInterface(LoggerBase):
 
             if wind_speed is not None:
 
+                # if not isinstance(wind_speed, list) and sim_time is not None: 
+                #     self.wind_speed_change = True
+                #     # this data member describes what wind speed should be used for Taylor's frozen wake hypothesis
+                #     self.propagate_wind_speed = wind_speed
+                #     self.floris.farm.flow_field.propagate_wind_speeds(self.floris.farm.wind_map.input_speed, wind_speed, sim_time)
+
                 # If not a list, convert to list
                 # TODO: What if tuple? Or
-                if not isinstance(wind_speed, list) and sim_time is not None: 
-                    self.wind_speed_change = True
-                    self.floris.farm.flow_field.propagate_wind_speeds(self.floris.farm.wind_map.input_speed, wind_speed, sim_time)
                 wind_speed = (
                     wind_speed if isinstance(wind_speed, list) else [wind_speed]
                 )
@@ -321,6 +340,16 @@ class FlorisInterface(LoggerBase):
             wind_map=self.floris.farm.wind_map,
         )
 
+        if hasattr(self, "vis_flow_field") and self.wind_speed_change:
+            self.vis_flow_field.reinitialize_flow_field(
+                wind_shear=wind_shear,
+                wind_veer=wind_veer,
+                specified_wind_height=specified_wind_height,
+                air_density=air_density,
+                wake=wake,
+                turbine_map=turbine_map,
+                with_resolution=with_resolution
+            )
 
 
     def get_plane_of_points(
@@ -331,6 +360,7 @@ class FlorisInterface(LoggerBase):
         x3_value=100,
         x1_bounds=None,
         x2_bounds=None,
+        sim_time=None
     ):
         """
         Calculates velocity values through the
@@ -354,8 +384,9 @@ class FlorisInterface(LoggerBase):
         Returns:
             :py:class:`pandas.DataFrame`: containing values of x1, x2, u, v, w
         """
-        # Get a copy for the flow field so don't change underlying grid points
-        flow_field = copy.deepcopy(self.floris.farm.flow_field)
+        if not hasattr(self, "vis_flow_field"):
+            # Get a copy for the flow field so don't change underlying grid points
+            self.vis_flow_field = copy.deepcopy(self.floris.farm.flow_field)
 
         if self.floris.farm.flow_field.wake.velocity_model.requires_resolution:
 
@@ -411,16 +442,18 @@ class FlorisInterface(LoggerBase):
         if normal_vector == "x":
             points = np.row_stack((x3_array, x1_array, x2_array))
 
-        # Recalculate wake with these points
-        flow_field.calculate_wake(points=points)
+        if sim_time is not None and sim_time != 0 and not self.wind_speed_change:
+            points = None
+
+        self.first_x = self.vis_flow_field.calculate_wake(points=points, sim_time=sim_time, visualize=True, propagate_wind_speed=self.propagate_wind_speed, first_x=self.first_x)
 
         # Get results vectors
-        x_flat = flow_field.x.flatten()
-        y_flat = flow_field.y.flatten()
-        z_flat = flow_field.z.flatten()
-        u_flat = flow_field.u.flatten()
-        v_flat = flow_field.v.flatten()
-        w_flat = flow_field.w.flatten()
+        x_flat = self.vis_flow_field.x.flatten()
+        y_flat = self.vis_flow_field.y.flatten()
+        z_flat = self.vis_flow_field.z.flatten()
+        u_flat = self.vis_flow_field.u.flatten()
+        v_flat = self.vis_flow_field.v.flatten()
+        w_flat = self.vis_flow_field.w.flatten()
 
         # Create a df of these
         if normal_vector == "z":
@@ -542,6 +575,7 @@ class FlorisInterface(LoggerBase):
         y_resolution=200,
         x_bounds=None,
         y_bounds=None,
+        sim_time=None
     ):
         """
         Shortcut method to instantiate a :py:class:`~.tools.cut_plane.CutPlane`
@@ -566,9 +600,10 @@ class FlorisInterface(LoggerBase):
         # If height not provided, use the hub height
         if height is None:
             height = self.floris.farm.flow_field.turbine_map.turbines[0].hub_height
-            self.logger.info(
+            if sim_time is None: 
+                self.logger.info(
                 "Default to hub height = %.1f for horizontal plane." % height
-            )
+                )
 
         # Get the points of data in a dataframe
         df = self.get_plane_of_points(
@@ -578,6 +613,7 @@ class FlorisInterface(LoggerBase):
             x3_value=height,
             x1_bounds=x_bounds,
             x2_bounds=y_bounds,
+            sim_time=sim_time
         )
 
         # Compute and return the cutplane
