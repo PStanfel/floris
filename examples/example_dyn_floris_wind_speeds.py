@@ -59,7 +59,8 @@ iterations = []
 
 for sim_time in range(total_time):
     iterations.append(sim_time)
-    print("Iteration:", sim_time)
+    if sim_time % 100 == 0:
+        print("Iteration:", sim_time)
     if sim_time == 1:
         fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
     if sim_time == 15:
