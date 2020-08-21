@@ -912,10 +912,7 @@ class FlowField:
 
             if sim_time is not None and visualize:
                 if not self.wind_change_resolved or sim_time == 0:
-                    #print("buffering in new wind speed...")
-                    first_x = self.wind_map.wind_field_buffer.add_wind_field(self.u, propagate_wind_speed, sim_time)
-                    #print("look_ahead u_field:\n", self.u)
-                    self.wind_change_resolved = True
+                    first_x = self.wind_map.wind_field_buffer.add_wind_field(self.u, propagate_wind_speed, sim_time, first_x=first_x)
 
                 self.u = self.wind_map.wind_field_buffer.get_wind_field(sim_time)
                 #print("u_field loaded as size:\n", np.shape(self.u))

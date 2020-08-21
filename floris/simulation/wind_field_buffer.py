@@ -31,6 +31,9 @@ class WindFieldBuffer():
             self._combination_function = combination_function
 
     def _add_to_wind_field_buffer(self, wind_speed, indices, delay, sim_time):
+
+        if delay < 0:
+            return
         i = indices[0]
         j = indices[1]
         k = indices[2]
@@ -52,9 +55,11 @@ class WindFieldBuffer():
         #self._future_wind_field_speeds[i][j][k].append(test_tuple)
         #print(self._future_wind_field_speeds[i][j][k])
 
-    def add_wind_field(self, new_wind_field, propagate_wind_speed, sim_time):
+    def add_wind_field(self, new_wind_field, propagate_wind_speed, sim_time, first_x=None):
         # add a new wind field to the buffer
-        first_x = np.min(self.x)#self.x[0][0][0]
+        if first_x is None:
+            first_x = np.min(self.x)#self.x[0][0][0]
+
         for i in range(len(new_wind_field)):
             for j in range(len(new_wind_field[i])):
                 for k in range(len(new_wind_field[i][j])):
@@ -68,7 +73,7 @@ class WindFieldBuffer():
                         delay = round(diff_x / propagate_wind_speed)
                         delay = int(delay)
                         self._add_to_wind_field_buffer(new_wind_speed, (i,j,k), delay, sim_time)
-        return first_x
+        return np.min(self.x)
 
     def get_wind_field(self, sim_time):
 
@@ -107,6 +112,8 @@ class WindFieldBuffer():
         self._future_wind_speeds.insert(slice_index, (new_wind_speed, delayed_time))
 
         self._future_wind_speeds = self._future_wind_speeds[:slice_index+1]
+
+        #print("wind_speed added at", delayed_time)
 
         #self._future_wind_speeds.append((new_wind_speed, sim_time))
 
@@ -319,7 +326,8 @@ class WindFieldBuffer():
         self._future_wake_deficits[index].insert(slice_index, (new_wake_deficit, delayed_time))
 
         self._future_wake_deficits[index] = self._future_wake_deficits[index][:slice_index+1]
-
+        #print(new_wake_deficit, "added at", delayed_time)
+        #print("_current_wake_deficits is", self._current_wake_deficits)
         #print("wake deficit added at time", delayed_time)
         #print("Turbine", self.number, "receives wake effect from Turbine", index, "at time", sim_time)
         #print(new_wake_deficit)
