@@ -18,49 +18,53 @@ import matplotlib.animation as manimation
 from matplotlib.animation import FuncAnimation
 import numpy as np
 import floris.tools as wfct
-import ffmpeg
+#import ffmpeg
 
-angle_changes = {250:[10,0,0], 500:[10,10,0], 750:[20,10,0], 1000:[20,20,0]}
+# **************************************** Parameters **************************************** #
 
+# whether or not a visualization should be generated
+visualize = True
+
+# whether or not the visualization animation should be saved as an mp4
+save = False
+
+# if save is True, what the file should be called
+file_name = "test_animation.mp4"
+
+# x and y resolution
+x_res = 200
+y_res = 200
+
+# total simulation time
+total_time = 150
+
+# **************************************** Initialization **************************************** #
 # Initialize the FLORIS interface fi
 # For basic usage, the florice interface provides a simplified interface to
 # the underlying classes
 fi = wfct.floris_interface.FlorisInterface("./example_input.json")
 
-# D = fi.floris.farm.turbines[0].rotor_diameter
-# layout_x = [0, 7 * D, 14 * D]
-# layout_y = [0, 0, 0]
-# fi.reinitialize_flow_field(layout_array=(layout_x, layout_y))
-
-# Calculate wake
+# Calculate initial wake
 fi.calculate_wake()
 
 # Get horizontal plane at default height (hub-height)
+# NOTE: this is currently commented out, wind conditions 
+# at sim_time 0 below will be assumed to be initial conditions
 #hor_plane = fi.get_hor_plane()
 
+# lists that will be needed for visualizations
+yaw_angles = [0 for turbine in fi.floris.farm.turbines]
 powers = []
 true_powers = []
-total_time = 150
-
-# turb_0_yaw = 20
-
-# fi.reinitialize_flow_field(wind_speed=8)
-# fi.calculate_wake(yaw_angles=[turb_0_yaw,0])
-# true_power = fi.get_farm_power()/1e6
-
-# fi.calculate_wake()
-
-yaw_angles = [0 for turbine in fi.floris.farm.turbines]
-
 turbine_velocities = []
-
 hor_planes = []
+wind_vectors = []
 iterations = []
 
-visualize = True
+# **************************************** Simulation **************************************** #
 
 if visualize:
-        [x1_bounds, x2_bounds] = fi.get_plane_of_points(return_bounds=True)
+        [x1_bounds, x2_bounds] = fi.get_plane_of_points(x1_resolution=x_res, x2_resolution=y_res, return_bounds=True)
         fi.first_x = x1_bounds[0]
 
 for sim_time in range(total_time):
@@ -77,42 +81,39 @@ for sim_time in range(total_time):
     #     fi.reinitialize_flow_field(wind_speed=7, sim_time=sim_time)
     if sim_time == 1:
         fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
+    if sim_time == 2:
+        fi.reinitialize_flow_field(wind_speed=7, sim_time=sim_time)
     # if sim_time == 10:
     #     yaw_angles = [45, 0]
 
-
+    # calculate dynamic wake computationally
     fi.calculate_wake(sim_time=sim_time, yaw_angles=yaw_angles)
-    #powers.append(fi.get_farm_power()/1e6)
+
+    # NOTE: at this point, can also use measure other quantities like average velocity at a turbine, etc.
     powers.append(sum([turbine.power for turbine in fi.floris.farm.turbines])/1e6)
 
+    # calculate horizontal cut plane if necessary
     if visualize:
-        hor_plane = fi.get_hor_plane(sim_time=sim_time)
+        hor_plane = fi.get_hor_plane(x_resolution=x_res, y_resolution=y_res, sim_time=sim_time)
         hor_planes.append(hor_plane)
+        wind_vector = hor_plane.df.u.to_numpy()
+        wind_vectors.append(wind_vector)
     
-    velocity = fi.floris.farm.turbines[1].average_velocity
-    turbine_velocities.append(velocity)
+    # calculate steady-state wake computationally
     fi.calculate_wake()
-    #true_powers.append(fi.get_farm_power()/1e6)
+
+    # NOTE: at this point, can also use measure other quantities like average velocity at a turbine, etc.
     true_powers.append(sum([turbine.power for turbine in fi.floris.farm.turbines])/1e6)
 
+# **************************************** Plots/Animations **************************************** #
 # Plot and show
-#fig, ax = plt.subplots()
-#wfct.visualization.visualize_cut_plane(hor_plane, ax=ax)
-
 plt.figure()
 
 plt.plot(list(range(total_time)), powers, label="Dynamic")
-#plt.plot(list(range(total_time)), turbine_velocities)
 plt.plot(list(range(total_time)), true_powers, label="Steady-State")
 plt.legend()
 plt.xlabel("Time (s)")
 plt.ylabel("Power (MW)")
-
-# for hor_plane in hor_planes:
-#     # Plot and show
-#     fig, ax = plt.subplots()
-#     wfct.visualization.visualize_cut_plane(hor_plane, ax=ax)
-#     #plt.
 
 fig, (ax1, ax2) = plt.subplots(2,1)
 
@@ -130,12 +131,15 @@ def animate(frame, ax1, ax2):
 
     wfct.visualization.visualize_cut_plane(hor_planes[frame], ax=ax2)
 
-x = 100
+# frame rate
+x = 10
 
 if visualize:
-    animation = FuncAnimation(fig, animate, np.arange(total_time), fargs=[ax1,ax2], interval=1000/x)
+    animation = FuncAnimation(fig, animate, np.arange(total_time), fargs=[ax1,ax2])
 
-#writer = manimation.PillowWriter(fps=x)
+    writer = manimation.FFMpegWriter(fps=x)
 
-#animation.save("test_animation.mp4", writer=writer)
+    if save:
+        animation.save(file_name, writer=writer)
+
 plt.show()
