@@ -40,7 +40,7 @@ fi.calculate_wake()
 
 powers = []
 true_powers = []
-total_time = 75
+total_time = 150
 
 # turb_0_yaw = 20
 
@@ -57,27 +57,37 @@ turbine_velocities = []
 hor_planes = []
 iterations = []
 
+visualize = True
+
+if visualize:
+        [x1_bounds, x2_bounds] = fi.get_plane_of_points(return_bounds=True)
+        fi.first_x = x1_bounds[0]
+
 for sim_time in range(total_time):
     iterations.append(sim_time)
     if sim_time % 100 == 0:
         print("Iteration:", sim_time)
-    if sim_time == 1:
-        fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
-    if sim_time == 15:
-        fi.reinitialize_flow_field(wind_speed=15, sim_time=sim_time)
-    if sim_time == 20:
-        fi.reinitialize_flow_field(wind_speed=8, sim_time=sim_time)
+    # if sim_time == 1:
+    #     fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
+    # if sim_time == 15:
+    #     fi.reinitialize_flow_field(wind_speed=15, sim_time=sim_time)
+    # if sim_time == 20:
+    #     fi.reinitialize_flow_field(wind_speed=8, sim_time=sim_time)
     # if sim_time == 11:
     #     fi.reinitialize_flow_field(wind_speed=7, sim_time=sim_time)
+    if sim_time == 1:
+        fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
+    # if sim_time == 10:
+    #     yaw_angles = [45, 0]
 
-    hor_plane = fi.get_hor_plane(sim_time=sim_time)
 
-
-    hor_planes.append(hor_plane)
-
-    fi.calculate_wake(sim_time=sim_time)
+    fi.calculate_wake(sim_time=sim_time, yaw_angles=yaw_angles)
     #powers.append(fi.get_farm_power()/1e6)
     powers.append(sum([turbine.power for turbine in fi.floris.farm.turbines])/1e6)
+
+    if visualize:
+        hor_plane = fi.get_hor_plane(sim_time=sim_time)
+        hor_planes.append(hor_plane)
     
     velocity = fi.floris.farm.turbines[1].average_velocity
     turbine_velocities.append(velocity)
@@ -106,8 +116,8 @@ plt.ylabel("Power (MW)")
 
 fig, (ax1, ax2) = plt.subplots(2,1)
 
-ax1.set_xlim([0, 75])
-ax1.set_ylim([0, 20])
+ax1.set_xlim([0, total_time])
+ax1.set_ylim([0, max(max(true_powers), max(powers))*1.1])
 
 line1, = ax1.plot([], [], label="Dynamic")
 line2, = ax1.plot([], [], label="Steady-State")
@@ -122,7 +132,8 @@ def animate(frame, ax1, ax2):
 
 x = 100
 
-animation = FuncAnimation(fig, animate, np.arange(total_time), fargs=[ax1,ax2], interval=1000/x)
+if visualize:
+    animation = FuncAnimation(fig, animate, np.arange(total_time), fargs=[ax1,ax2], interval=1000/x)
 
 #writer = manimation.PillowWriter(fps=x)
 
