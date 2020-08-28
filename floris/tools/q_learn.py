@@ -2,6 +2,7 @@ import numpy as np
 import math
 import random
 import sys
+from collections import deque
 
 # File created by Paul Stanfel for CSM-Envision Energy Research in Wind Farm Control; alpha version not yet validated.
 
@@ -10,7 +11,172 @@ This script contains functions that are useful to implement Q-learning tasks wit
 to action selection and Bellman equation updating.
 '''
 
-def boltzmann(Q, indices, tau, return_probs=False):
+class Q():
+    '''
+    This class is intended to encapsulate the Q lookup and update processes. It should be 
+    able to take in a state tuple and output a list of action values.
+
+    Args:
+        states: list of simulation states.
+    '''
+    def __init__(self, states):
+        self.states = states
+        self.obs_states = [state for state in self.states if state.observed]
+
+        if all([state.state_type == "discrete" for state in self.states]):
+            # should be a tabular function approximation only if all states are discrete
+            self.approx_type = "table"
+        else:
+            self.approx_type = "ann"
+
+        # the number of actions is the product of all the actions of all the controllable states
+        self.num_actions = np.prod([state.num_actions for state in states if state.controlled])
+
+        self.discount = 0.5
+
+        if self.approx_type == "table":
+            dim = [len(state.discrete_values) for state in self.obs_states]
+            dim.append(self.num_actions)
+            self.table = np.zeros(tuple(dim))
+            self.E = np.zeros_like(self.table)
+            self.lamb = 0
+            self.k = [1,1,1]
+        elif self.approx_type == "ann":
+            # this import is slow, only do so if necessary
+            from keras import backend as K
+            from keras.models import Sequential
+            from keras.layers import Dense, Activation
+            from keras.optimizers import Adam
+            from keras.metrics import mean_squared_error
+
+            num_states = len(self.obs_states)
+            num_actions = self.num_actions
+
+            self.policy_net = Sequential([
+                Dense(16, input_dim=num_states, activation='relu'),
+                Dense(32, activation='relu'),
+                Dense(16, activation='relu'),
+                Dense(num_actions)
+            ])
+            
+            self.target_net = self.policy_net
+
+            self.policy_net.compile(Adam(lr=0.0001), loss='mean_squared_error')
+
+            self.target_net.compile(Adam(lr=0.0001), loss='mean_squared_error')
+
+            self.memory = deque(maxlen=100)
+
+            self.batch_size = 10
+
+            self.update_counter = 0
+            self.update_threshold = 10
+
+    def _get_state_indices(self, state_values):
+        state_indices = []
+        for i,state in enumerate(self.obs_states):
+            state_indices.append(state.get_index(target=state_values[i]))
+
+        return tuple(state_indices)
+
+    def read(self, state_values):
+        if len(state_values) != len(self.obs_states):
+            error = "Invalid number of state values. state_values must have " + str(len(self.states)) + " elements."
+            raise ValueError(error)
+
+        if self.approx_type == "table":
+            state_indices = self._get_state_indices(state_values)
+
+            return self.table[state_indices]
+        elif self.approx_type == "ann":
+            s = np.reshape(state_values, (1, -1))
+
+            return self.policy_net.predict(s)[0]
+
+    def _modify_target_net(self):
+        weights = self.policy_net.get_weights()
+        target_weights = self.target_net.get_weights()
+        for i in range(len(target_weights)):
+            target_weights[i] = weights[i]
+        self.target_net.set_weights(target_weights)
+
+    def update(self, state_values, action, reward, future_state_values, update_type="q_learn", future_action=None, n=None):
+        valid_update_types = ["q_learn", "sarsa"]
+
+        if update_type not in valid_update_types:
+            raise ValueError("Invalid update type specified.")
+
+        if update_type == "sarsa" and future_action is None:
+            raise ValueError("Must specify future action index with SARSA update.")
+
+        if len(state_values) != len(self.obs_states):
+            error = "Invalid number of state values. state_values must have " + str(len(self.states)) + " elements."
+            raise ValueError(error)
+
+        if self.approx_type == "table":
+            if n is None:
+                raise ValueError("Must specify n for tabular function approximation.")
+
+            state_indices = self._get_state_indices(state_values)
+
+            # Determine learning rate.
+            l = self.k[0] / (self.k[1] + self.k[2]*n[state_indices])
+
+            Q_t = self.table[state_indices][action]
+
+            # accumulating traces
+            self.E[state_indices][action] += 1
+
+            future_state_indices = self._get_state_indices(future_state_values)
+
+            if update_type == "q_learn":
+                target = np.max(self.table[future_state_indices])
+            elif update_type == "sarsa":
+                target = self.table[future_state_indices][future_action]
+
+            delta = reward + self.discount*target - Q_t
+
+            self.table = self.table + l*delta*self.E
+            self.E = self.discount*self.lamb*self.E
+
+            return
+        elif self.approx_type == "ann":
+            self.memory.append([np.array(state_values), action, reward, np.array(future_state_values)])
+
+            if len(self.memory) < self.batch_size:
+                return
+
+            samples = random.sample(self.memory, self.batch_size)
+            for sample in samples:
+                s, a, r, s_ = sample
+
+                # change dimensions for use in keras model
+                s = np.reshape(s, (1,-1))
+                s_ = np.reshape(s_, (1,-1))
+
+                target = self.target_net.predict(s)
+
+                Q_t_1 = max(self.target_net.predict(s_)[0])
+
+                target[0][a] = r + self.discount*Q_t_1
+
+                self.policy_net.fit(s, target, epochs=1, verbose=0)
+
+            self.update_counter += 1
+
+            if self.update_counter == self.update_threshold:
+                self._modify_target_net()
+                self.update_counter = 0
+
+    def return_q_table(self):
+        if self.approx_type == "table":
+            return self.table
+        elif self.approx_type == "ann":
+            # there is no table for the ANN
+            return np.zeros(1)
+            #raise ValueError("Can't return Q-table for continuous state space.")
+
+def boltzmann(Q_obj, state_values, tau, indices=None, return_probs=False):
     """"
     Performs a Boltzmann exploration search for use in a Q-learning algorithm.
 
@@ -25,8 +191,9 @@ def boltzmann(Q, indices, tau, return_probs=False):
         action: An int representing which action should be selected. This must be interpreted by the 
         modify_behavior function.
     """
-    num_actions = np.shape(Q)[-1]
-    
+    num_actions = Q_obj.num_actions#np.shape(Q)[-1]
+    Q_values = Q_obj.read(state_values=state_values)
+
     p = np.zeros(num_actions)
     #NOTE: changed to new Q order
     #p = np.zeros(np.shape(Q)[0])
@@ -39,19 +206,21 @@ def boltzmann(Q, indices, tau, return_probs=False):
 
     for i in range(len(p)):
         #Q_s = Q[i][indices]
-        Q_s = min(Q[indices][i], upper_lim)
+        #Q_s = min(Q[indices][i], upper_lim)
+        Q_s = min(Q_values[i], upper_lim)
         #Q_s = Q[indices][i]
         Q_sum += math.exp(Q_s/tau)
     for i in range(len(p)):
         #Q_s = Q[i][indices]
-        Q_s = min(Q[indices][i], upper_lim)
+        #Q_s = min(Q[indices][i], upper_lim)
+        Q_s = min(Q_values[i], upper_lim)
         #Q_s = Q[indices][i]
         p[i] = math.exp(Q_s/tau) / Q_sum
 
-    for i in range(len(p)):
-        Q_s = min(Q[indices][i], upper_lim)
-        #Q_s = Q[indices][i]
-        p[i] = math.exp(Q_s/tau) / Q_sum
+    # for i in range(len(p)):
+    #     Q_s = min(Q[indices][i], upper_lim)
+    #     #Q_s = Q[indices][i]
+    #     p[i] = math.exp(Q_s/tau) / Q_sum
     # p is a vector with probabilities of selecting an action
     # p must be interpreted to correspond to a given action
 
@@ -134,15 +303,22 @@ def gradient(deltas):
         means increase. Unlike the other action selection algorithms, this cannot be interpreted otherwise
         by the modify_behavior method.
     """
-    delta_V = deltas[0]
-    delta_input = deltas[1]
+    # delta_V = deltas[0]
+    # delta_input = deltas[1]
 
-    if delta_input == 0:
-        # if there is a zero in the denominator, default to increasing
+    # if delta_input == 0:
+    #     # if there is a zero in the denominator, default to increasing
+    #     action = 2
+    #     return action
+
+    # grad = delta_V / delta_input
+    if any([pair[1] == 0 for pair in deltas]):
         action = 2
         return action
 
-    grad = delta_V / delta_input
+    grad = 0
+    for pair in deltas:
+        grad += pair[0] / pair[1]
 
     if grad < 0:
         # decrease if the gradient is negative

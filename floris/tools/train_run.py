@@ -2,6 +2,7 @@ from floris.tools import iterate, agent_server_coord
 import itertools
 import numpy as np
 import matplotlib.pyplot as plt
+from floris.tools.optimization.scipy.yaw import YawOptimization
 
 # File created by Paul Stanfel for CSM-Envision Energy Research in Wind Farm Control; alpha version not yet validated.
 
@@ -42,7 +43,7 @@ def _reintialize_turbine_value(turbine_agents, server):
 
 def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
     wind_direction_profile=None, action_selection="boltzmann", reward_signal="constant", \
-    coord=None, opt_window=100, print_iter=True):
+    coord=None, opt_window=100, print_iter=True, num_episodes=1, num_iterations=None):
     """
     This method is intended to train a set of agents using a given wind profile and user 
     determined parameters.
@@ -100,57 +101,95 @@ def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
     if print_iter:
         print("Beginning iteration of steady-state simulation...")
 
-    # count up indefinitely, since simulation end time is not known 
-    for i in itertools.count():
-        #if i % 2000 == 0:
-            #fi.calculate_wake(yaw_angles=[0 for _ in fi.floris.farm.turbines])
+    for e in range(num_episodes):
 
-        # end if stop conditions are met
-        if i == max(wind_speed_profile.keys()) and len(powers) > 0:
-            return [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards, prob_lists]
-        elif i == max(wind_speed_profile.keys()):
-            return [[], turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards, prob_lists]
+        if num_iterations is None:
+            iter_list = range(max( max(wind_speed_profile.keys())+1, max(wind_direction_profile.keys())+1))
+        else:
+            iter_list = range(num_iterations)
 
-        # reinitialize farm wind direction to next wind direction in the profile 
-        if wind_direction_profile is not None and i in wind_direction_profile: 
-            fi.reinitialize_flow_field(wind_direction=wind_direction_profile[i])
-            #print("Wind direction reset to ", wind_direction_profile[i])
-            # TODO: figure out if this is best place to put this
-            server.reset_coordination_windows()
+        # count up indefinitely, since simulation end time is not known 
+        for i in iter_list:#itertools.count():
+            # if i % 1000 == 0:
+            #     fi.calculate_wake(yaw_angles=[0,0,0])
+            # NOTE: this was moved to the end of the episode iteration
+            if i == max( max(wind_speed_profile.keys()), max(wind_direction_profile.keys()) ):
+                break
+            # # end if stop conditions are met
+            # if i == max(wind_speed_profile.keys()) and len(powers) > 0:
+            #     return [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards, prob_lists]
+            # elif i == max(wind_speed_profile.keys()):
+            #     return [[], turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards, prob_lists]
 
-        # reinitialize farm wind speed to next wind speed in the profile 
-        if wind_speed_profile is not None and i in wind_speed_profile: 
-            fi.reinitialize_flow_field(wind_speed=wind_speed_profile[i])
-            #print("Wind speed reset to ", wind_speed_profile[i])
-            # TODO: figure out if this is best place to put this
-            server.reset_coordination_windows()
-            #fi.calculate_wake()
-            #fi.calculate_wake(yaw_angles=[None for agent in turbine_agents], sim_time=i)
-            # TODO: determine if _reinitialize_turbine_value should be called here or not
-            #_reintialize_turbine_value(turbine_agents, server)
+            # reinitialize farm wind direction to next wind direction in the profile 
+            if wind_direction_profile is not None and i in wind_direction_profile: 
+                diff = (wind_direction_profile[i] - 270) - fi.floris.farm.flow_field.wind_direction
+                fi.reinitialize_flow_field(wind_direction=wind_direction_profile[i])
+                #print("Wind direction reset to ", wind_direction_profile[i])
+                # TODO: figure out if this is best place to put this
+                server.reset_coordination_windows()
 
-        if i%1000== 0 and print_iter:
-            print("Iteration:", str(i))
+                # NOTE: I am currently trying to implement this in floris_agent, so that I can use absolute yaw angles
+                server.change_wind_direction(diff)
+                # print("Wind direction changed by", diff, "degrees")
+                # yaw_angles = [turbine.yaw_angle - diff for turbine in fi.floris.farm.turbines]
+                # fi.calculate_wake(yaw_angles=yaw_angles)
 
-        output = iterate.iterate_floris_steady(fi, turbine_agents, server, action_selection, reward_signal,\
-            coord=coord, opt_window=opt_window)
+            # reinitialize farm wind speed to next wind speed in the profile 
+            if wind_speed_profile is not None and i in wind_speed_profile: 
+                fi.reinitialize_flow_field(wind_speed=wind_speed_profile[i])
 
-        for j,value in enumerate([agent.total_value_present for agent in turbine_agents]):
-            turbine_values[j].append(value)
+                # TODO: figure out if this is best place to put this
+                server.reset_coordination_windows()
 
-        for j,yaw_angle in enumerate(output[0]):
-            turbine_yaw_angles[j].append(yaw_angle)
-            turbine_error_yaw_angles[j].append(yaw_angle)
+                # TODO: determine if _reinitialize_turbine_value should be called here or not
+                #_reintialize_turbine_value(turbine_agents, server)
 
-        for j,reward in enumerate(output[1]):
-            rewards[j].append(reward)
+            if i%1000== 0 and print_iter:
+                print("Iteration:", str(i))
 
-        power = np.sum([turbine.power for turbine in fi.floris.farm.turbines])
-        powers.append(power / 1e6)
-        prob_lists.append(output[2])
+            output = iterate.iterate_floris_steady(fi, turbine_agents, server, action_selection, reward_signal,\
+                coord=coord, opt_window=opt_window)
+
+            for j,value in enumerate([agent.total_value_present for agent in turbine_agents]):
+                turbine_values[j].append(value)
+
+            for j,yaw_angle in enumerate(output[0]):
+                turbine_yaw_angles[j].append(yaw_angle)
+                turbine_error_yaw_angles[j].append(yaw_angle)
+
+            for j,reward in enumerate(output[1]):
+                rewards[j].append(reward)
+
+            power = np.sum([turbine.power for turbine in fi.floris.farm.turbines])
+            powers.append(power / 1e6)
+            prob_lists.append(output[2])
+
+        
+        print("Optimizing yaw for episode ", str(e))
+        #fi.reinitialize_flow_field(layout_array=[layout_x, layout_y])
+        min_yaw = -45.0
+        max_yaw = 45.0
+        # Instantiate the Optimization object
+        yaw_opt = YawOptimization(fi, minimum_yaw_angle=min_yaw, maximum_yaw_angle=max_yaw)
+
+        # Perform optimization
+        best_yaw_angles = yaw_opt.optimize()
+        # print(best_yaw_angles)
+        # print([turbine_yaw_angles[i][-1] for i in range(len(turbine_agents))])
+
+        punishment_factor = 0
+        if [item for sublist in turbine_yaw_angles for item in sublist]:
+            # skip this if turbine_yaw_angles has not been filled yet
+            for i,agent in enumerate(turbine_agents):
+                #error = abs(best_yaw_angles[i] - agent.sim_context.return_state("yaw_angle").get_state())
+                error = abs(best_yaw_angles[i] - turbine_yaw_angles[i][-1])
+                agent.update_Q(threshold=None, set_reward=error*punishment_factor)
+                # print("Punishment value for", agent.alias, ":", error*punishment_factor)
+    return [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards, prob_lists]
 
 def run_farm(fi, turbine_agents, server, wind_speed_profile, \
-    wind_direction_profile=None, action_selection="boltzmann", reward_signal="constant", calamities=None):
+    wind_direction_profile=None, action_selection="boltzmann", reward_signal="constant", calamities=None, print_iter=True):
     """
     This method is intended to implement a set of trained agents in a quasi-dynamic environment
     using a given wind profile and user determined parameters.
@@ -178,9 +217,18 @@ def run_farm(fi, turbine_agents, server, wind_speed_profile, \
         to simulate events such as a loss of a turbine.
     """
     
+    # calculate initial wakes of the wind farm
+    fi.calculate_wake()
+
+    _reintialize_turbine_value(turbine_agents, server)
+
+    for i,turbine in enumerate(fi.floris.farm.turbines):
+        turbine.number = i
+
     turbine_yaw_angles = [[] for turbine in fi.floris.farm.turbines]
     turbine_error_yaw_angles = [[] for turbine in fi.floris.farm.turbines]
     turbine_values = [[] for turbine in fi.floris.farm.turbines]
+    rewards = [[] for turbine in fi.floris.farm.turbines]
     
     fi.wind_speed_change = (False, np.nan)
 
@@ -192,32 +240,34 @@ def run_farm(fi, turbine_agents, server, wind_speed_profile, \
     num_iterations_stabilize = 0#round(fi.floris.farm.flow_field.find_largest_distance() / fi.floris.farm.flow_field.wind_speed)
 
     powers = []
-    print("Beginning quasi-dynamic test...")
-    
+    if print_iter: print("Beginning quasi-dynamic test...")
+
     # count up indefinitely, since simulation end time is not known 
     for i in itertools.count():
-        
+
         # activate calamity if the correct simulation time is met
         if calamities is not None and i in calamities:
             calamities[i](fi, turbine_agents, server)
 
         # end if stop conditions are met
         if i == max(wind_speed_profile.keys()) and len(powers) > 0:
-            return [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values]
+            return [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards]
         elif i == max(wind_speed_profile.keys()):
-            return [[], turbine_yaw_angles, turbine_error_yaw_angles, turbine_values]
-        #print("POWER 1:", fi.get_farm_power())
-        if i in wind_speed_profile:
-            fi.reinitialize_flow_field(wind_speed=wind_speed_profile[i])
-            print("Wind speed inside run_farm() is registered as", wind_speed_profile[i])
-            print("Wind speed changed")
-        #print("POWER 2:", fi.get_farm_power())
+            return [[], turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards]
+
+        if wind_speed_profile is not None and i in wind_speed_profile:
+            fi.reinitialize_flow_field(wind_speed=wind_speed_profile[i], sim_time=i)
+            #print("Wind speed inside run_farm() is registered as", wind_speed_profile[i])
+
+        if wind_direction_profile is not None and i in wind_direction_profile:
+            fi.reinitialize_flow_field(wind_direction=wind_direction_profile[i], sim_time=i)
+
         if verbose:
             print("Iteration:", str(i))
         else:
-            if i%1000== 0:
+            if i%1000== 0 and print_iter:
                 print("Iteration:", str(i))
-        
+
         train_action_selection = action_selection
 
         if i == num_iterations_stabilize and i != 0: train_action_selection = "hold"
@@ -238,14 +288,15 @@ def run_farm(fi, turbine_agents, server, wind_speed_profile, \
         for i,yaw_angle in enumerate(output[2]):
             turbine_error_yaw_angles[i].append(yaw_angle)
 
-        
+        for i, reward in enumerate(output[4]):
+            rewards[i].append(reward)
+
         """ for i,value in enumerate(output[3]):
             print("Iteration:", i)
             print(value)
             turbine_values[i].append(value) """
 
-        power = fi.get_farm_power()
-        #power = np.sum([turbine.power for turbine in fi.floris.farm.turbines])
+        power = np.sum([turbine.power for turbine in fi.floris.farm.turbines])
         powers.append(power / 1e6)
-
-    return [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values]
+    print("Returning data...")
+    return [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards]

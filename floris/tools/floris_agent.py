@@ -13,6 +13,7 @@ import numpy as np
 from floris.tools import iterate
 import itertools
 import copy
+from floris.tools import q_learn
 
 # Helper functions
 
@@ -63,13 +64,15 @@ def _set_delay_map(turbine_agent):
         delay_map[turbine_agent.alias] = self_delay
 
         # NOTE: testing what happens when the turbine only locks itself
-        #self_delay = max([delay_map[alias] for alias in delay_map])
-        #turbine_agent.delay_map = {turbine_agent.alias: self_delay}
+        # self_delay = max([delay_map[alias] for alias in delay_map])
+        # turbine_agent.delay_map = {turbine_agent.alias: self_delay}
         # END NOTE
     else:
         turbine_agent.delay_map = {}
 
+    # NOTE: comment this out if above note is uncommented
     turbine_agent.delay_map = delay_map
+    # END NOTE
 
 # Miscellaneous functions/classes
 
@@ -94,13 +97,32 @@ class FlorisModel():
                           "wind_direction": self.wind_direction}
 
     def yaw_angle(self):
-        return self.turbine.yaw_angle
+        
+        yaw_angle = self.turbine.yaw_angle + self.wind_direction()
+        #print("Wind direction to add to yaw angle:", self.fi.floris.farm.wind_direction)
+        # if any(self.fi.wind_dir_change_turb):
+        #     print(self.fi.wind_dir_change_turb)
+        #     # self.fi.wind_dir_change is a list of booleans, so if any of them are true the wind direction needs to be shifted
+        #     yaw_angle -= self.fi.wind_dir_shift
+        #     print("Wind dir shift of", self.fi.wind_dir_shift, "subtracted.")
+            
+        #     # NOTE: this only works for instantaneous farm wind direction changes
+        #     for i,flag in enumerate(self.fi.wind_dir_change_turb):
+        #         if flag:
+        #             # change one True element to False
+        #             self.fi.wind_dir_change_turb[i] = False
+        #             break
+        #print("Absolute yaw angle:", yaw_angle)
+        return yaw_angle
 
     def wind_speed(self):
         return self.fi.floris.farm.wind_map.turbine_wind_speed[self.index]#turbine_wind_speed[self.index]
 
     def wind_direction(self):
-        return self.fi.floris.farm.wind_map.turbine_wind_direction[self.index]
+        wind_dir = self.fi.floris.farm.wind_map.turbine_wind_direction[self.index]
+        if wind_dir > 180: wind_dir -= 360
+
+        return wind_dir
 
     def get_state_methods(self, state_names):
         state_methods = {}
@@ -114,37 +136,86 @@ class FlorisModel():
         return state_methods
 
 class State():
+    """
+    Class that encapsulates the behavior of a simulation state.
 
-    def __init__(self, name, method, discrete_values, error_type, error_value, controlled):
+    Args:
+        name: Name of the state (string).
+        method: Function that describes what should be returned by the State object
+        state_type: Specifies whether state is continuous or discrete (string). Current options are:
+            - continuous
+            - discrete
+        discrete_values: If the state is discrete, a list of values that the state space can be. The value returned by method will be set to the closest value in this list (array-like).
+        controlled: Whether this state can be controlled or not (boolean). NOTE: currently, controllable states are assumed to be discrete.
+        error_type: The type of measurement error (string). Current options are:
+            - prop: proportional error
+            - offset: static offset error
+            - none: no error
+        error_value: The value, if any, to adjust the state measurement by, according to the type of error selected by error_type (float).
+        action_type: Specifies how actions are to be selected (string). NOTE: these are designed currently around yaw misalignment control, and also assume a discrete yaw state space. Current options are:
+            - step: the turbine has the choice of either not moving, increasing, or decreasing by an interval defined by the discrete state space.
+            - jump: the turbine chooses a yaw angle from any of the possible yaw angles in the discrete state space, at 1 degree intervals.
+            - skew: the turbine can either choose the yaw angle passed by the skew argument, or choose a yaw angle above or below the skew argument. The amount above or below is currently hardcoded to 5. NOTE: this action type is not complete.
+        skew: The yaw angle that is used to determine yaw setpoints under the "skew" action type (float).
+
+    Returns:
+        FlorisModel: An instantiated FlorisModel object.
+    """
+    def __init__(self, name, method, state_type, discrete_values=None, controlled=False, observed=True, error_type="none", error_value=0, action_type="step", skew=0):
         self.name = name
         self.method = method
+        self.state_type = state_type
         self.discrete_values = discrete_values
         self.error_type = error_type
         self.error_value = error_value
         self.controlled = controlled
+        self.observed = observed
 
         self.get_state()
 
         valid_errors = ["offset", "prop", "none"]
+        valid_states = ["discrete", "continuous"]
 
         if self.error_type not in valid_errors:
             error = self.name + " has invalid error type."
             raise ValueError(error)
 
-        # hard-coded because right now behavior modification function is hard-coded
-        self.num_actions = 3
+        if self.state_type not in valid_states:
+            error = self.name + " has invalid state type."
+            raise ValueError(error)
 
-    def get_state(self, target=None):
+        if self.state_type == "discrete" and self.discrete_values is None:
+            raise ValueError("Discrete state type must have discrete state space specified.")
+
+        self.action_type = action_type
+
+        if self.action_type == "step":
+            # this means that actions are inc, dec, and stay
+            self.num_actions = 3
+        elif self.action_type == "jump":
+            # this means that actions are a yaw angle setpoint at one degree increments
+            self.num_actions = int(round(discrete_values[-1]) - round(discrete_values[0]))
+        elif self.action_type == "skew":
+            self.num_actions = 3
+            self.skew = skew
+
+    def get_state(self, target=None, round_to_bin=True):
         """
-        Returns the closest discrete state value to the errored state
+        Returns the errored state or the closest discrete state value to the errored state.
 
         Args:
-            target: An optional value that specifies which value the index should be returned
-            for. If None, index will be returned for the current (errored) state value.
+            target: An optional value that specifies which value the closest state value should be returned for. If None, value will be returned for the current 
+            (errored) state value.
+            round_to_bin: Whether or not the errored state should be rounded to a discrete state bin(boolean).
         """
+        if not self.state_type == "discrete" and round_to_bin:
+            # this method is only effective for discrete state spaces
+            return None
+
         if target is None:
             actual_value = self.method()
 
+            # include error type into the measurement
             if self.error_type == "offset":
                 errored_value = actual_value + self.error_value
             elif self.error_type == "prop":
@@ -152,11 +223,17 @@ class State():
             elif self.error_type == "none":
                 errored_value = actual_value
 
-            self.state_value = errored_value #self.discrete_values[self.get_index(target=errored_value)]
+            if round_to_bin:
+                #return errored_value
+                return self.discrete_values[self.get_index(target=errored_value)]
+            else:
+                return errored_value
 
-            return self.state_value
         else:
-            return self.discrete_values[self.get_index(target=target)]
+            if round_to_bin:
+                return self.discrete_values[self.get_index(target=target)]
+            else:
+                return target
 
     def get_index(self, target=None):
         """
@@ -166,9 +243,11 @@ class State():
             target: An optional value that specifies which value the index should be returned
             for. If None, index will be returned for the current (errored) state value.
         """
-        # Determine indices of state values that are closest to the discretized states
-        state_indices = []
+        if not self.state_type == "discrete":
+            # this method is only effective for discrete state spaces
+            return None
 
+        # Determine indices of state values that are closest to the discretized states
         if target is None:
             index = np.abs(self.discrete_values - self.method()).argmin()
         else:
@@ -177,17 +256,33 @@ class State():
         return index
 
     def set_state(self, agent):
-        # this returns what should be passed to the 
+        """
+        Returns a value that can be passed into FLORIS to be run. While trying to be agnostic to the type of control action, this method was built to handle yaw angle control. NOTE: this assumes that the state is discrete. 
+
+        Args:
+            agent: TurbineAgent object that is returning a control action.
+        """
         
         if not self.controlled:
             # state can't be set if this is not a controllable state
             return None
 
+        # Calculate the smallest allowable yaw increment
+        delta_state_value = self.discrete_values[1] - self.discrete_values[0] 
+
+        if self.action_type == "jump":
+            # under jump action type, action number corresponds directly to yaw angle setpoint.
+            # BUG: what about negative yaw angles?
+            return agent.action
+        elif self.action_type == "skew":
+            # under skew sction type, turbine can oscillate by a fixed amount around a setpoint determined by self.skew. Oscillation amount currently hardcoded to 5 degrees.
+            delta_state_value = 5
+            yaw_angle = ((agent.action % 3) - 1)*delta_state_value + self.skew
+            return yaw_angle
+
         state_value = self.get_state()
 
         if agent.target_state is None:
-            # Calculate the smallest allowable yaw increment
-            delta_state_value = self.discrete_values[1] - self.discrete_values[0] 
 
             # set "present" value to calculate delta, if needed (for example, in a gradient)
             agent.control_action_present = agent.control_action_future
@@ -201,6 +296,8 @@ class State():
                 state_value = state_value
             elif agent.action == 2:
                 state_value = state_value + delta_state_value
+            elif agent.action is None:
+                state_value = state_value
             else:
                 print("Invalid action chosen.")
 
@@ -227,8 +324,6 @@ class State():
             else:
                 agent.delay_map = {}
 
-            #yaw_angle_error = yaw_angle
-
             return state_value_error
         else:
             agent.delay_map = {}
@@ -242,7 +337,7 @@ class State():
             else:
                 state_value += np.sign(diff) * agent.model.turbine.yaw_rate
                 #print(agent.alias, str(np.sign(diff) * agent.model.turbine.yaw_rate))
-                #print(agent.alias, str(yaw_angle))
+                #print(agent.alias, str(state_value))
                 _set_delay_map(agent)
                 
 
@@ -268,17 +363,17 @@ class SimContext():
     def __init__(self, states):
 
         self.states = states
+        self.obs_states = [state for state in self.states if state.observed]
 
     def blank_tables(self):   
 
-        dim = [len(state.discrete_values) for state in self.states]
+        dim = [len(state.discrete_values) for state in self.obs_states]
         n = np.zeros(tuple(dim))
 
         num_action_list = []
 
-        for state in self.states:
-            if state.controlled:
-                num_action_list.append(state.num_actions)
+        for state in self.obs_states:
+            num_action_list.append(state.num_actions)
         
         if len(num_action_list) == 0:
             total_num_actions = 0
@@ -290,23 +385,42 @@ class SimContext():
         dim.append(total_num_actions)
         Q = np.zeros(tuple(dim)) # internal Q-table
 
-        return [n, Q]
+        Q_obj = q_learn.Q(self.states)
+
+        return [n, Q, Q_obj]
 
     def observe_state(self, agent):
+
         state_values = []
 
-        for state in self.states:
-            state_values.append(state.get_state())
-            
+        for state in self.obs_states:
+            state_value = state.get_state()
+
+            # # add yaw angle to wind direction to get absolute yaw angle
+            # if state.name == "yaw_angle":
+            #     state_value += wind_dir
+            #     print("observed yaw angle:", state_value)
+            state_values.append(state_value)
+
         return tuple(state_values)
 
     def modify_behavior(self, agent):
+        wind_dir = 0
+
+        # if wind direction and yaw angle are both states, yaw angle will need to be added to wind direction
+        if self.find("yaw_angle") is not None and self.find("wind_direction") is not None:
+            wind_dir = self.find("wind_direction").get_state(round_to_bin=False)
         setpoints = []
 
         for state in self.states:
             if state.controlled == True:
-                setpoints.append(state.set_state(agent))
+                setpoint = state.set_state(agent)
 
+                # subtract yaw angle from wind direction to get absolute yaw angle
+                if state.name == "yaw_angle" and setpoint is not None:
+                    setpoint -= wind_dir
+
+                setpoints.append(setpoint)
         return tuple(setpoints)
 
     def index_split(self, table, state_name="yaw_angle", state_map={"wind_speed":None, "wind_direction":None}):
@@ -318,7 +432,7 @@ class SimContext():
 
         sub_array = copy.deepcopy(table)
 
-        for state in self.states:
+        for state in self.obs_states:
             if state.name != state_name:
                 append_array.append(state.get_index(state_map[state.name]))
             else:
@@ -348,6 +462,27 @@ class SimContext():
         state.error_value = error_value
 
         return
+
+    def get_state_indices(self, targets=None):
+        state_indices = []
+        for i,state in enumerate(self.obs_states):
+            if targets is None:
+                state_indices.append(state.get_index())
+            else:
+                state_indices.append(state.get_index(target=targets[i]))
+
+        return tuple(state_indices)
+
+    def find(self, state_name, return_index=False):
+
+        for i,state in enumerate(self.states):
+            if state.name == state_name:
+                if return_index:
+                    return i
+                else:
+                    return state
+        
+        return None
 
 def find_neighbors(turbine_agent):
     """
@@ -762,6 +897,30 @@ def value_function_power_opt(turbine_agent, server, time=None):
     # NOTE: remove this line, it is to see what convergence is like when the turbines have unlimited comm.
     #total_value = sum([turbine.power for turbine in self.model.fi.floris.farm.turbines])
     return total_value
+
+def value_function_baseline(turbine_agent, server, time=None):
+    total_value = 0
+
+    #if self.alias == "turbine_1":
+    #    scale_factor = 10
+    #else:
+    #    scale_factor = 1
+
+    for alias in turbine_agent.neighbors:
+        total_value += server.read_channel(alias)
+    # for alias in self.reverse_neighbors:
+    #     total_value += server.read_channel(alias)
+    # TODO figure out if it should be server.read_channel(self.alias) or self.evaluate_value_function
+    total_value += _power_opt(turbine_agent)
+
+    if time == 0:
+        turbine_agent.total_value_present = total_value
+    elif time == 1:
+        turbine_agent.total_value_future = total_value
+
+    # NOTE: remove this line, it is to see what convergence is like when the turbines have unlimited comm.
+    #total_value = sum([turbine.power for turbine in self.model.fi.floris.farm.turbines])
+    return total_value - turbine_agent.value_baseline
 
 def _power_normalized(turbine_agent):
     """

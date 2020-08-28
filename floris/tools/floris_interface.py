@@ -246,14 +246,24 @@ class FlorisInterface(LoggerBase):
             turbulence_intensity = self.TKE_to_TI(turbulence_kinetic_energy, wind_speed)
 
         if not isinstance(wind_speed, list) and sim_time is not None: 
-                    self.wind_speed_change = True
-                    self.propagate_wind_speed = wind_speed
-                    self.floris.farm.flow_field.propagate_wind_speeds(self.floris.farm.wind_map.input_speed, wind_speed, sim_time, first_x=self.first_x)
+            self.wind_speed_change = True
+            self.propagate_wind_speed = wind_speed
+            self.floris.farm.flow_field.propagate_wind_speeds(self.floris.farm.wind_map.input_speed, wind_speed, sim_time, first_x=self.first_x)
 
-                    # this will signal that the next time a visualization is required, the wake will need to be recalculated
-                    if hasattr(self, "vis_flow_field"):
-                        self.vis_flow_field.wind_change_resolved = False
-                        self.vis_flow_field.wind_map.input_speed = [wind_speed]
+            # this will signal that the next time a visualization is required, the wake will need to be recalculated
+            if hasattr(self, "vis_flow_field"):
+                self.vis_flow_field.wind_change_resolved = False
+                self.vis_flow_field.wind_map.input_speed = [wind_speed]
+
+        if not isinstance(wind_direction, list) and wind_direction is not None:
+            old_wind_direction = self.floris.farm.flow_field.wind_map.input_direction[0]
+
+            wind_dir_shift = wind_direction - old_wind_direction
+
+            yaw_angles = np.array([turbine.yaw_angle for turbine in self.floris.farm.turbines])
+
+            # nudge turbines opposite the wind direction shift
+            self.floris.farm.set_yaw_angles(yaw_angles - wind_dir_shift)
 
         if wind_layout or layout_array is not None:
             # Build turbine map and wind map (convenience layer for user)

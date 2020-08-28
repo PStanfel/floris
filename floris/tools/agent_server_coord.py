@@ -4,6 +4,7 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 import sys
+from scipy.ndimage.filters import gaussian_filter
 
 # File created by Paul Stanfel for CSM-Envision Energy Research in Wind Farm Control; alpha version not yet validated.
 
@@ -72,7 +73,8 @@ class TurbineAgent():
                     tau=0.5,
                     epsilon=0.1,
                     discount=0.5,
-                    sim_context=None):
+                    sim_context=None,
+                    value_baseline=0):
     
         self.sim_context = sim_context
 
@@ -81,6 +83,9 @@ class TurbineAgent():
         self.yaw_prop = yaw_prop
         self.yaw_offset = yaw_offset
         self.error_type = error_type #0: no error, 1: proportional error, 2: offset error
+
+        # variable that tracks wind direction differences
+        self.wind_dir_diff = 0
 
         self.verbose = verbose
         self.farm_turbines = farm_turbines # dict mapping all aliases in the farm to (x,y) coordinates
@@ -91,6 +96,7 @@ class TurbineAgent():
         self.model = model
 
         self._value_function = value_function # must have TurbineAgent as only argument and return int or float representing the turbine value function
+        self.value_baseline = value_baseline
 
         self._observe_turbine_state = observe_turbine_state # must have TurbineAgent as only argument and return tuple representing state
         self.state = self._observe_turbine_state(self)
@@ -100,8 +106,8 @@ class TurbineAgent():
         # if len(self.state) != len(self.discrete_states):
         #     raise ValueError("Tuple returned by observe_turbine_state does not match the dimensions of the discrete state space.")
 
-        self.state_indices = self._get_state_indices(self.state)
-        
+        self.state_indices = self.sim_context.get_state_indices()#self._get_state_indices(self.state)
+
         self.neighbors = [] # list of agent neighbors
         self.reverse_neighbors = [] # list of turbines that have the agent as neighbors
 
@@ -111,7 +117,16 @@ class TurbineAgent():
         self.find_neighbors = find_neighbors
 
         self.discrete_states = discrete_states
-        [self.n, self.Q] = self.sim_context.blank_tables()
+
+        # TODO: in the future, self.Q will be replaced by self.Q_obj, left in here to avoid errors elsewhere
+        [self.n, self.Q, self.Q_obj] = self.sim_context.blank_tables()
+
+        # initialize eligibility trace table
+        self.E = np.zeros_like(self.Q)
+
+        # TD(lambda) parameter (lambda is a reserved python keyword)
+        self.lamb = 0
+
         # dim = [len(state_space) for state_space in discrete_states]
         # self.n = np.zeros(tuple(dim)) # table that keeps track of how many times a state has been visited
 
@@ -140,8 +155,14 @@ class TurbineAgent():
         self.action = 0
         self.total_value_present = 0
         self.total_value_future = 0
+
+        self.self_value_present = 0
+        self.self_value_future = 0
+
         self.control_action_present = 0
         self.control_action_future = 0
+
+        self.reward = 0 # keep track of reward signals
 
         self._modify_behavior = modify_behavior # must have TurbineAgent as only argument and return a parameter that will be updated in the overall system
 
@@ -199,6 +220,9 @@ class TurbineAgent():
         else:
             data = self.model.turbine.power
             
+        self.self_value_present = self.self_value_future
+        self.self_value_future = data
+
         server.update_channel(self.alias, data)#self._value_function(self, server))
 
     def pull_from_server(self, server, target_alias):
@@ -231,10 +255,13 @@ class TurbineAgent():
         # observe new state
         new_state = self._observe_turbine_state(self)
 
-        if not peek:
+        # this conditional should set the internal state variables if the agent is ramping (ie self.target_state is not None)
+        # or if peek is False and the agent is not ramping
+        # setting peek to True will bypass this, unless the agent is ramping
+        if not peek:#if self.target_state is not None or (not peek and self.target_state is None):
             # if peek is False, set new state and calculate corresponding indices in the state space        
             self.state = new_state
-            self.state_indices = self._get_state_indices(self.state)
+            self.state_indices = self.sim_context.get_state_indices()#self._get_state_indices(self.state)
 
             # Update n to reflect how many times this state has been visited
             self.n[self.state_indices] += 1
@@ -242,9 +269,8 @@ class TurbineAgent():
         # change state_change member variable if a state change occurred in the target state
         if old_state[target_state] != new_state[target_state]:
             self.state_change = True
-            print("state_change set to True.")
             if self.verbose:
-                print(self.alias, "state change")
+                print(self.alias, "state_change set to True")
                 print(self.state)
                 print(self.state_indices)
                 #plt.matshow(self.Q[self.state_indices[0]])
@@ -292,7 +318,7 @@ class TurbineAgent():
         #discrete_target_index = q_learn.find_state_indices([self.discrete_states[control_state]], [target])
         discrete_target = self.sim_context.return_state(control_state).get_state(target=target) #self.discrete_states[control_state][discrete_target_index]
         self.target_state = (discrete_target, control_state)
-        print(self.alias, "sets target as", discrete_target)
+        if self.verbose: print(self.alias, "sets target as", discrete_target)
 
     # def _evaluate_value_function(self):
     #     return self._value_function(self, server)
@@ -329,33 +355,46 @@ class TurbineAgent():
         elif action_selection == "epsilon":
             self.action = q_learn.epsilon_greedy(self.Q, self.state_indices, self.epsilon)
 
-    def _calculate_deltas(self):
+    def _calculate_deltas(self, server):
         """
         Calculates change in value function and change in control input between iterations for use in, for
         example, a gradient-based action selection algorithm.
+
+        Args:
+            server: Server object so that the agent can learn information about neighbors.
 
         Returns:
             deltas: An iterable that has the difference in value function as its first element and the difference
             in control input as its second element.
         """
-
-        # difference in the value function between the "future" and the "present"
-        delta_V = self.total_value_future - self.total_value_present
-
-        # difference in the control input between the "future" and the "present"
+        deltas = []
         delta_control = self.control_action_future - self.control_action_present
+        for alias in self.neighbors:
+            deltas.append((server.read_delta(alias), delta_control))
 
-        deltas = [delta_V, delta_control]
+        deltas.append((server.read_delta(self.alias), delta_control))
+
+        # # difference in the value function between the "future" and the "present"
+        # delta_V = self.total_value_future - self.total_value_present
+
+        # # difference in the control input between the "future" and the "present"
+        # delta_control = self.control_action_future - self.control_action_present
+
+        # deltas = [delta_V, delta_control]
         #print(self.alias, "delta_V:", delta_V)
         #print(self.alias, "delta_control:", delta_control)
         return deltas
 
-    def take_action(self, action_selection="boltzmann"):
+    def take_action(self, action_selection="boltzmann", server=None, state_indices=None, return_action=False):
         """
         Chooses an action and returns a system parameter mapped via the function modify_behavior
 
         Args:
             action_selection: The algorithm that will be used to select a control action.
+            state_indices: A tuple that, if specified, will be used as the state indices to find
+            the Q entry at, not the current state_indices stored in self.state_indices.
+            return_action: Boolean specifiying whether or not the action that was selected should 
+            be returned.
 
         Returns:
             A system parameter that must be interpreted by the external code based on how modify_behavior is defined
@@ -363,24 +402,34 @@ class TurbineAgent():
         # skip this method if the turbine is shut down
         if self.shut_down:
             return None
+
+        if state_indices is not None:
+            indices = state_indices
+        else:
+            indices = self.state_indices
         #self._select_action(action_selection=action_selection)
         if action_selection == "boltzmann":
-            self.action = q_learn.boltzmann(self.Q, self.state_indices, self.tau)
+            # this is the only method currently reconfigured for Q_obj
+            action = q_learn.boltzmann(self.Q_obj, self.state, self.tau)
         elif action_selection == "epsilon":
-            self.action = q_learn.epsilon_greedy(self.Q, self.state_indices, self.epsilon)
+            action = q_learn.epsilon_greedy(self.Q, indices, self.epsilon)
         elif action_selection == "gradient":
-            self.action = q_learn.gradient(self._calculate_deltas())
+            action = q_learn.gradient(self._calculate_deltas(server))
             #print(self.alias, "takes action", self.action)
             #print(self.alias, self._calculate_deltas())
         elif action_selection == "hold":
-            return None
+            action = None
 
         """ if self.alias == "turbine_0" or self.alias == "turbine_2":
             self.action = 1 """
         
+        if return_action:
+            return action
+        
+        self.action = action
         return self._modify_behavior(self)
 
-    def update_Q(self, threshold, reward_signal="constant", scaling_factor=100):
+    def update_Q(self, threshold, reward_signal="constant", scaling_factor=100, set_reward=None):
         """
         This function assumes that a simulation has been run and total_value_future has been updated, and updates
         the internal Q-table based on which action is currently selected by the turbine agent.
@@ -401,16 +450,23 @@ class TurbineAgent():
         # Determine learning rate.
         l = self.k[0] / (self.k[1] + self.k[2]*self.n[self.state_indices])
         #l = 0.5
-        # Calculate difference between "future" value and "present" value.
-        diff = self.total_value_future - self.total_value_present
+        
+        #diff = (self.total_value_future - self.total_value_present) + (self.total_value_future - self.value_baseline) / self.value_baseline 
+        #NOTE: testing out different diff calculation
+        
         #print(diff)
-        if reward_signal == "variable":
+        #print(diff)
+        if reward_signal == "variable" and set_reward is None:
+            # Calculate difference between "future" value and "present" value.
+            diff = (self.total_value_future - self.total_value_present)
+
             # NOTE: only remove scaling_factor if power is scaled already in push_data_to_server
             reward = diff/scaling_factor
-            #print(reward)
-            """if abs(reward) < 1:
-                print(reward)  """
-        elif reward_signal == "constant":
+
+        elif reward_signal == "constant" and set_reward is None:
+            # Calculate difference between "future" value and "present" value.
+            diff = (self.total_value_future - self.total_value_present)
+
             # Assign reward based on change in system performance.
             if diff > threshold:
                 reward = 1
@@ -425,27 +481,72 @@ class TurbineAgent():
                 # intended to mitigate reward not being defined if diff is NaN
                 reward = 0
 
+        elif reward_signal == "absolute" and set_reward is None:
+            diff = self.total_value_future - self.value_baseline/2
+
+            reward = diff / self.value_baseline * 2
+
+        else:
+            reward = set_reward
+
+        # set self.reward so reward signals can be visualized over the course of the simulation
+        self.reward = reward
+
+        # NOTE testing different reward assignment scheme
+        new_gap = self.total_value_future - self.value_baseline
+        old_gap = self.total_value_present - self.value_baseline
+
+        # if old_gap < 0:
+        #     if new_gap >= old_gap:
+        #         reward = 0
+        #     else:
+        #         reward = -1
+        # else:
+        #     if new_gap >= old_gap:
+        #         reward = 1
+        #     else:
+        #         reward = 0
+
         # The "current" Q value, obtained using the chosen action and the previous state_indices.
         #NOTE: changed to new Q order
         #Q_t = self.Q[self.action][self.state_indices]
-        Q_t = self.Q[self.state_indices][self.action]
+        #Q_t = self.Q[self.state_indices][self.action]
         
+        # accumulating traces
+        #self.E[self.state_indices][self.action] = self.E[self.state_indices][self.action] + 1
+
         # Observe new state, using the internal function that doesn't overwrite any variables.
         future_state = self._observe_turbine_state(self)
-        future_state_indices = self._get_state_indices(future_state)
+        future_state_indices = self.sim_context.get_state_indices(targets=future_state)#self._get_state_indices(future_state)
 
         # Maximum "future" Q value.
-        max_Q_t_1 = q_learn.max_Q(self.Q, future_state_indices)
+        #max_Q_t_1 = q_learn.max_Q(self.Q, future_state_indices)
+
+        future_action = self.take_action(state_indices=future_state_indices, return_action=True)
+        #next_Q = self.Q[future_state_indices][future_action]
 
         # The "future" Q value.
-        Q_t_1 = Q_t + l*(reward + self.discount*max_Q_t_1 - Q_t)
+        #Q_t_1 = Q_t + l*(reward + self.discount*max_Q_t_1 - Q_t)
 
         # Update the Q table
         #NOTE: changed to new Q order
         #self.Q[self.action][self.state_indices] = Q_t_1
 
-        self.Q[self.state_indices][self.action] = Q_t_1
+        # print statement to see if table is being updated
+        if set_reward is not None:
+            print("Q table entry for state", self.state, "and action", self.action, "updated with reward", reward, "for agent", self.alias)
 
+        #delta = reward + self.discount*max_Q_t_1 - Q_t
+
+        #self.Q = self.Q + l*delta*self.E
+        #self.E = self.discount*self.lamb*self.E
+        #print(self.alias, "updating Q-table for state", self.state)
+        self.Q_obj.update(self.state, self.action, reward, future_state, n=self.n)
+        self.Q = self.Q_obj.return_q_table()
+
+        # commented out temporarily to test eligibility traces
+        #self.Q[self.state_indices][self.action] = Q_t_1
+        #print(self.alias, "completes Q update with reward", reward)
         return reward
 
     def prob_sweep(self, fixed_state_indices, fixed_states):
@@ -533,22 +634,50 @@ class TurbineAgent():
 
             state: Optional state tuple that can be used to determine the appropriate LUT entry for a 
             given state.
+
+            state_map: Dictionary mapping state names to their setpoint. Setting state names to None means that the value returned from the state space will be used.
         """
         
 
-        states = self.sim_context.index_split(self.n, state_name, state_map)
+        state_values = self.sim_context.return_state(state_name)
+        #states = self.sim_context.index_split(self.n, state_name, state_map)
         states_Q = self.sim_context.index_split(self.Q, state_name, state_map)
-
-        max_index = np.argmax(states)
+        blurred_Q = gaussian_filter(states_Q, sigma=[7,0])
+        #plt.matshow(np.reshape(blurred_Q, (1, len(blurred_Q))))
+        #max_index = np.argmax(states)
         #max_index_Q = np.argmax(states_Q[:,1])
-        max_index_Q = np.argmin(states_Q[:,0] + states_Q[:,2])
+        #max_index_Q = np.argmin(blurred_Q[:,0] + blurred_Q[:,2])
+        #max_index_Q = np.shape(states_Q)[0]-1
+        # for i in list(range(np.shape(states_Q)[0])):
+        #     if blurred_Q[i,1] >= blurred_Q[i,0] and blurred_Q[i,1] >= blurred_Q[i,2]:
+        #         max_index_Q = i
+        #         break
+        if state_values.observed:
+            max_index_Q = 0
+            diffs = blurred_Q[:,2] - blurred_Q[:,0]
+            for i,diff in enumerate(diffs):
+                if diff < 0:
+                    max_index_Q = i
+                    break
+                if blurred_Q[i,0] == blurred_Q[i,1] and blurred_Q[i,1] == blurred_Q[i,2]:
+                    # if there are no angles found for which the first condition is true, choose
+                    # the first instance in which all actions have the same value
+                    # NOTE: this assumes only three actions
+                    max_index_Q = i
+                    break
+        else:
+            max_index_Q = np.argmax(blurred_Q)
+
+        # zero_crossings_inc = np.where(np.diff(np.sign(blurred_Q[:,2])))[0]
+        # zero_crossings_dec = np.where(np.diff(np.sign(blurred_Q[:,0])))[0]
+
         #max_index_Q = np.argmax(states_Q[:,1] - (states_Q[:,0] + states_Q[:,2]))
         #max_index_Q = np.argmin( ( abs(states_Q[:,1] - states_Q[:,0]) + abs(states_Q[:,1] - states_Q[:,2]) ) / 2 )
 
         #plt.matshow(states_Q)
         state_values = self.sim_context.return_state(state_name)
 
-        return state_values.discrete_values[max_index]
+        return state_values.discrete_values[max_index_Q]
 
 
     def inc_opt_counter(self, opt_window=100):
@@ -622,6 +751,15 @@ class Server():
         """
         return self.channels[alias]
 
+    def read_delta(self, alias):
+
+        agent = self._find_agent(alias)
+
+        delta_P = agent.self_value_future - agent.self_value_present
+        #delta_control = agent.control_action_future - agent.control_action_present
+
+        return delta_P
+
     def reset_channels(self, value):
         """
         Reset all channels to the same value
@@ -663,10 +801,11 @@ class Server():
 
         agent.delay_map = new_delay_map
 
+        #print(agent.delay_map)
         for alias in agent.delay_map:
             # NOTE: testing what happens when the turbine only locks itself
             # locked_turbine = self._find_agent(alias)
-            
+            # print(agent.alias, "locks", locked_turbine.alias, "for", agent.delay_map[alias])
             # locked_turbine.delay = agent.delay_map[alias]
             # break
             # END NOTE: remove preceding section to return to normal behavior
@@ -677,7 +816,6 @@ class Server():
             if alias == agent.alias and len(agent.delay_map) == 1:
                 continue
             locked_turbine = self._find_agent(alias)
-            #print(agent.alias, "locks", locked_turbine.alias, "for", agent.delay_map[alias])
             # NOTE: this if statement might not be necessary
             if locked_turbine.delay == 0 and not locked_turbine.shut_down:
                 # set locked_turbine delay according to the delay map
@@ -763,3 +901,8 @@ class Server():
         locked_by = self._find_agent(agent.locked_by)
         locked_by.process_shut_down()
         return
+
+    def change_wind_direction(self, diff):
+        # this method updates the wind direction differential entry for each agent
+        for agent in self.agents:
+            agent.wind_dir_diff += diff
