@@ -1,7 +1,7 @@
 import floris.tools as wfct
 from floris.tools.agent_server_coord import Server, TurbineAgent
 import floris.tools.floris_agent as fa
-from floris.tools.optimization import optimize_yaw
+from floris.tools.optimization.scipy.yaw import YawOptimization
 import floris.tools.train_run as tr
 import numpy as np
 import matplotlib.pyplot as plt
@@ -43,13 +43,16 @@ class Trainer():
                 - not_static: dummy variable to test Q-table training, TODO: expand to other training methods
 
         training_method: An instantiated TrainingMethod object.
+
+        dyn_train: A boolean indicating if the Trainer should use the quasi-dynamic environment. If True, the quasi-dynamic environment will be used. If False, the steady-state environment will be used.
     Returns:
         Trainer: An instantiated Trainer object.
     """
-    def __init__(self, fi, parameters, training_method):
+    def __init__(self, fi, parameters, training_method, dyn_train=False):
         self.fi = fi
         self.parameters = copy.deepcopy(parameters)
         self.tm = training_method
+        self.dyn_train = dyn_train
 
         if "wind_profiles" not in self.parameters:
             self.parameters["wind_profiles"] = None
@@ -74,8 +77,10 @@ class Trainer():
             D = self.fi.floris.farm.turbines[0].rotor_diameter
             self.parameters["neighborhood_dims"] = [14*D, D]
 
-        self.parameters["wind_speeds"] = np.array(self.parameters["wind_speeds"])
-        self.parameters["wind_directions"] = np.array(self.parameters["wind_directions"])
+        if "wind_speeds" in self.parameters:
+            self.parameters["wind_speeds"] = np.array(self.parameters["wind_speeds"])
+        if "wind_directions" in self.parameters:
+            self.parameters["wind_directions"] = np.array(self.parameters["wind_directions"])
         self.parameters["yaw_angles"] = np.array(self.parameters["yaw_angles"])
 
     def wind_speeds(self):
@@ -109,7 +114,11 @@ class Trainer():
         for i,wind_speed in enumerate(self.parameters["wind_speeds"]):
             for j,wind_direction in enumerate(self.parameters["wind_directions"]):
                 self.fi.reinitialize_flow_field(wind_speed=wind_speed, wind_direction=wind_direction)
-                yaw_angles = optimize_yaw(self.fi, min_yaw, max_yaw, verbose=False)
+                # Instantiate the Optimization object
+                yaw_opt = YawOptimization(self.fi, minimum_yaw_angle=min_yaw, maximum_yaw_angle=max_yaw)
+
+                # Perform optimization
+                yaw_angles = yaw_opt.optimize(verbose=False)
 
                 self._fill_tables(tables, yaw_angles, i, j)                
 
@@ -156,18 +165,18 @@ class Trainer():
 
         turbine_agents = []
         for index,turbine in enumerate(turbines):
-                model = fa.FlorisModel(fi, turbine)
+                model = fa.FlorisModel(fi, turbine, index)
 
-                wind_speed_state = fa.State("wind_speed", model.wind_speed, wind_speed, "none", None, False)
-                wind_direction_state = fa.State("wind_direction", model.wind_direction, wind_dir, "none", None, False)
-                yaw_angle_state = fa.State("yaw_angle", model.yaw_angle, yaw, "none", None, True)
+                wind_speed_state = fa.State(name="wind_speed", method=model.wind_speed, state_type="discrete", discrete_values=wind_speed, error_type="none", controlled=False)
+                wind_direction_state = fa.State(name="wind_direction", method=model.wind_direction, state_type="discrete", discrete_values=wind_dir, error_type="none", controlled=False)
+                yaw_angle_state = fa.State(name="yaw_angle", method=model.yaw_angle, state_type="discrete", discrete_values=yaw, error_type="none", controlled=True)
 
-                sim_context = fa.SimContext([wind_speed_state, wind_direction_state, yaw_angle_state])
+                sim_context = fa.SimContext([wind_speed_state, yaw_angle_state])#wind_direction_state, yaw_angle_state])
 
-                agent = TurbineAgent(aliases[index], discrete_states, 
+                agent = TurbineAgent(aliases[index], "no one of consequence", 
                                     farm_turbines=farm_turbines, 
-                                    observe_turbine_state=fa.observe_turbine_state_sp_dir_yaw, 
-                                    modify_behavior=fa.modify_behavior_sp_dir_yaw, 
+                                    observe_turbine_state=sim_context.observe_state,#fa.observe_turbine_state_sp_dir_yaw, 
+                                    modify_behavior=sim_context.modify_behavior,#fa.modify_behavior_sp_dir_yaw, 
                                     num_actions=fa.num_actions_yaw, 
                                     value_function=value_function, 
                                     find_neighbors=fa.find_neighbors, 
@@ -184,6 +193,8 @@ class Trainer():
                 turbine_agents.append(agent)
         server = Server(turbine_agents)
         
+        num_iterations = self.tm.iterations
+
         if self.parameters["wind_profiles"] is not None:
             wind_profiles = self.parameters["wind_profiles"]
             if wind_profiles[0] is None or wind_profiles[1] is None:
@@ -193,22 +204,24 @@ class Trainer():
                 wind_direction_profile = wind_profiles[1]
         else:
             wind_speeds = self.parameters["wind_speeds"]
-            num_iterations = self.tm.iterations
             wind_speed_profile = tr.create_constant_wind_profile(wind_speeds, num_iterations)
 
             # TODO: add code to make a valid wind direction profile (will require modifying train_farm)
-            wind_direction_profile = None
+            wind_direction_profile = tr.create_constant_wind_profile([270], max(wind_speed_profile.keys()))
 
         action_selection = self.tm.action_selection
         reward_signal = self.tm.reward_signal
         coord = self.tm.coord
         opt_window = self.tm.opt_window
 
-        [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, reward, prob_list] = \
-        tr.train_farm(fi, turbine_agents, server, wind_speed_profile, \
-            action_selection=action_selection, reward_signal=reward_signal,\
-            coord=coord, opt_window=opt_window, print_iter=False)
-
+        if not self.dyn_train:
+            [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards, prob_list] = \
+            tr.train_farm(fi, turbine_agents, server, wind_speed_profile, wind_direction_profile=wind_direction_profile, action_selection=action_selection, reward_signal=reward_signal,\
+                coord=coord, opt_window=opt_window, print_iter=False)
+        else:
+            [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards] = \
+            tr.run_farm(fi, turbine_agents, server, wind_speed_profile, wind_direction_profile=wind_direction_profile, action_selection=action_selection, reward_signal=reward_signal)
+        plt.plot(powers)
         iterations = range(num_iterations)
 
         if file_prefix is not None:
@@ -237,7 +250,7 @@ class Trainer():
 class LUT():
     def __init__(self, training_method, discrete_states, table=None, alias=None, agent=None):
         self._tm = training_method
-        self._discrete_states = discrete_states
+        self.discrete_states = discrete_states
 
         if self._tm.static:
             self._table = table
@@ -270,22 +283,22 @@ class LUT():
                 # add dummy yaw angle
                 state = state + (0,)
                 # NOTE: probably don't need this, so probably don't need to import q_learn
-                state_indices = q.find_state_indices(self._discrete_states, state)
+                state_indices = q.find_state_indices(self.discrete_states, state)
                 return self._table[state_indices[0:-1]]
         else:
-            num_wind_speeds = len(self._discrete_states[0])
-            num_wind_directions = len(self._discrete_states[1])
+            num_wind_speeds = len(self.discrete_states[0])
+            num_wind_directions = len(self.discrete_states[1])
 
             if all_states:
                 table = np.zeros((num_wind_speeds, num_wind_directions))
 
-                for i,wind_speed in enumerate(self._discrete_states[0]):
-                    for j,wind_direction in enumerate(self._discrete_states[1]):
+                for i,wind_speed in enumerate(self.discrete_states[0]):
+                    for j,wind_direction in enumerate(self.discrete_states[1]):
                         # TODO: change utilize_q_table method so I don't need to put a dummy yaw angle in
                         state = (wind_speed, wind_direction, 0)
                         state_map = {"wind_speed":wind_speed, "wind_direction":wind_direction}
                         # NOTE: probably don't need this, so probably don't need to import q_learn
-                        state_indices = q.find_state_indices(self._discrete_states, state)
+                        state_indices = q.find_state_indices(self.discrete_states, state)
 
                         table[i][j] = self.agent.utilize_q_table(state_name="yaw_angle",state_map=state_map)#axis=[0,1], state=state)
                 return table
@@ -294,9 +307,11 @@ class LUT():
                 state = state + (0,)
 
                 # NOTE: probably don't need this, so probably don't need to import q_learn
-                state_indices = q.find_state_indices(self._discrete_states, state)
+                state_indices = q.find_state_indices(self.discrete_states, state)
 
-                return self.agent.utilize_q_table(axis=[0,1], state=state)
+                state_map = {"wind_speed": state[0], "wind_direction": state[1]}
+
+                return self.agent.utilize_q_table(state_name="yaw_angle", state_map=state_map)
     
     #def _read_q_table(self, wind_speed, wind_direction):
 
