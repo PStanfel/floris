@@ -1,0 +1,137 @@
+8/13/2019
+Today I tried to figure out why the plots of the yaw error do not track with the plot of the turbine yaw control signals. I was trying to trace through the example_error_tests.py file. As of yet, I am unable to figure out why there is this discrepancy. I believe that it has something to do with the fact that the yaw error is not introduced until the turbine is unlocked, so if the yaw angle somehow changes after the loop in which the state is observed, the yaw error offset will not be added until the next iteration. I have also begun to work on adding changes in wind direction, creating the file example_wind_direction_changes.py. There is a problem with how the offsets are reset, however. When a new wind direction is initialized, the wind turbine reads it always as a wind direction of 0. Thus, different wind directions are not registering as different states, and so the Q-table is ineffective. 
+
+8/19/2019
+I think that I have figured out part of the issue with introducing error into the model. The modify_behavior function used the turbine state to update the yaw angle, not the actual yaw angle. So, when I got rid of the part that undoes the yaw angle error in the modify_behavior function, the yaw angle "saturates" at the lowest value because the yaw angle gets pushed down on each successive iteration. I changed the function to read the actual yaw angle stored in the Turbine object, not the turbine_state variable, and I think this somewhat fixed the problem. However, I am now running into the problem that the dynamic portion of the simulation decreases the power output with time, instead of staying constant.
+
+8/20/2019
+Today I resolved the error that I mentioned in the summary yesterday, or at least I kind of did. For some reason, when I reran the simulation example_rl_time_delay.py with the observe_state function moved outside of the check_neighbors if statement in iterate_floris_delay, the RL algorithm stopped working properly. I moved it back inside, but when I was testing to see if that had done anything the error noticed yesterday disappeared. I have now been working on seeing if the power outputs of the turbines saturate at high wind speeds. If they do, then the RL algorithm should align turbines to zero (because the waked zone might also be above rated velocity), but to do this will require incorporating yaw angles into the value function. I created the file example_rl_wind_changes.py to begin testing this.
+
+8/21/2019
+Today the error came back, but it only seems to come around in the example_rl_time_delay.py script. The dynamic portion of the simulations in example_error_tests.py seem unaffected and stay right at the optimal level. I have also begun to experiment with the script example_rl_wind_changes.py. Right now I am simply stepping through a sequence of wind speeds. Interestingly, the algorithm correctly sets the yaw angles at high wind speeds to zero, even without accounting for yaw angles in the value function. Unfortunately, the turbines seem to have to relearn the optimal yaw angles every time a new wind speed is reached. In other words, rather than moving immediately to the correct yaw angles, the turbines have to go through the same step response pattern. This might have something to do with the q-table being improperly accessed. I am also mostly done with the ACC paper outline.
+
+8/22/2019
+I have figured out the various simulation scenarios that cause various parts of the wake-compensated control algorithm to stop working. Assuming starting from an empty q-table, commenting out the "break" statement and moving "agent.observe_state()" inside the conditional will (probably) cause the wind farm to converge to about 5% power gain, essentially only moving the first turbine due to the lack of a break statement. If "agent.observe_state()" is moved outside the conditional, the algorithm will increase power, but very sporadically and with a much increased rise time. Uncommenting the "break" does not seem to do too much.
+
+8/28/2019
+Today I generated figures for a potential ACC paper. I also met with NREL employees who specialize in RL, and they gave me some advice about implementing machine learning. Yesterday I discovered that increasing the turbine learning rate would significantly improve the turbine's ability to adjust to errors, and doing this improved performance greatly.
+
+11/18/2019
+Today I worked to add a gradient-based optimization action selection algorithm. I am currently stuck because I am trying to keep my modify_behavior function abstracted away form the inner workings of the TurbineAgent class, but for a deterministic routine like gradient-descent the action selection routine needs to know which actions correspond to an increase or decrease. I am also stuck as to how to deal with the first time that the gradient is called, as there will be no deltas to calculate. I think I might just always choose the "increase" option if the delta is zero. Finally, I am not sure whether the gradient-descent algorithm should include a "stay" option. If it does, I will probably need to establish a threshold, below which the gradient is counted as an insignificant change and there is no change in the control variable.
+
+11/20/2019
+Today I completed the gradient function, which requires the deltas to be passed into it instead of a TurbineAgent object. It oscillates significantly, so I am currently in the process of investigating if the deltas would actually be calculated correctly when the gradient method is called. I have still not implemented a "stay" option.
+
+12/10/2019
+Today I successfully incorporated the coordination strategy based on the Guestrin paper into the code, which optimizes back to front. I achieved significantly faster convergence, although I have not yet tested what impact this has on the quasi-dynamic learning phase. I will be doing that tomorrow. I also added the script example_grad_rl_comparison which simply plots saved data of both RL and gradient-based algorithms.
+
+12/11/2019
+Today I plotted differences in farm output power and saw that the farm trained with gradient descent methods performed just as well if not better than the random RL method in the quasi-dynamic environment. I briefly tested the turbine failure calamity and saw that setting Cp and Ct to 0 cause divide by 0 errors, so I will have to figure out a different way to shut down a turbine in the simulation. Finally, I modified the example_wind_profiles.py script to potentially use a different action selection, etc. for the quasi-dynamic simulation.
+
+12/16/2019
+Today I added a method parameter to the coordination_check method in Server to enable the farm yaw angles to be optimized either up to down stream or down to up stream. The results are about the same, although the converged yaw angle is different for either one, and I am not sure why. 
+
+1/6/2019
+Today I renamed the Simulation class to be called LUT and began to write code that can read parameters and run a simulation to be trained. Eventually, I hope to have a completely abstract class that can have parameters passed into it and then train and execute simulations using high-level commands.
+
+1/8/2019
+Today I added the capabilities to train and read a static LUT. I am still working on adding this functionality for the dynamic LUT, and I am specifically working on modifiny the TurbineAgent.utilize_q_table() method to do this by adding the option to pass a state into the method rather than just read the current state.
+
+1/9/2020
+Today I tried to modify TurbineAgent.utilize_q_table() to allow me to input a state to be read in. I have begun to refer to the use of utilize_q_table() as in example_wind_profiles.py as the nominal case.
+
+1/10/2020
+Today I primarily added comments to my existing code to prepare it to send to Envision Energy.
+
+1/21/2020
+Today I finished work on specifying the training method using a TrainingMethod object. I now need to figure out what my next step will be. It could be working to add in wind direction variations to the wind farm, or it could be figuring out how to deal with real life wind conditions. Probably wind direction.
+
+1/23/2019
+Today I discovered that something with the wind direction changes is causing NaNs (I think) to be outputted in the power array. I need to figure out why, and I am also trying to move over to use more the method in train_run that I created specifically to output constant wind profiles, to reduce confusion.
+
+1/24/2010
+Today I fixed bugs in the wind direction code. I think it is ready now to begin experimenting with temporal patterns, but I also want to look at wind data to see which patterns are realistic.
+
+1/27/2020
+Today I fixed an issue with convergence in the variable Boltzmann algorithm that was due to a the total_value_future variable not being set which caused a very large reward signal at the first iteration. The variable algorithm has very large issues with convergence, and I also noticed that there might actually be an increase in performance from using a two turbine neighborhood instead of three. The code is currently configured for a two turbine neighborhood, accomplished by decreasing the downwind parameter from 3000 to 1000. The code is also currently configured with a "cheating" value function, which simply returns the entire output of the farm. Even using this value function, the Boltzmann algorithm gets stuck at a local maximum, but the gradient algorithm succeeds in reaching [25, 25, 0] (or within one discrete step from it). 
+
+2/3/2020
+Today I created a new file called example_hyperparameters.py in order to tune hyperparameters and test the variable reward algorithm. I also discovered that the deterministic ramp code is not working on the simulation branch, so I have added some debug statements and need to look into that more.
+
+2/5/2020
+I figured out the issue with the deterministic ramp. It was caused by the increased size in the state space. This means that I (probably) need to add an additional variable that keeps track of which is (are) the controllable state(s) so that I don't have to hardcode the "axis" and "target_action" parameters to the utilize_q_table method in TurbineAgent.
+
+2/10/2020
+Today I worked mainly on making it easier to see the output of the hyperparameter tuning script, which I converted to a Jupyter notebook. The current issue that I am working on is understanding why the static table reading method is outputting NaNs.
+
+2/18/2020
+Worked mostly on developing way to pass value functions into TurbineAgent object so as to properly test algorithms.
+
+2/19/2020
+Notes:
+	- "cheating" value function calculation does not actually affect behavior, because choosing actions is based on the output from the value function, and the "cheating" line is after this.
+
+2/28/2020
+Today I tried to work on code to deactivate a turbine. Unfortunately it will require rewriting the scripts that I used to accommodate wake propagation, because when I reinitialize the flow field it erases one of the elements of the sorted_map element in flow_field. I think I need to move all of the lists that were previously maintained in turbine.py into flow_field.py so that they can persist after a turbine is removed or added.
+
+3/2/2020
+Today I fixed the issue with the turbine output and can now effectively shut down a turbine. I also tried to plot the variable reward simulation against the total value function plot, but the simulation output is much larger than the value function plot for some reason. I will need to continue looking into this.
+
+3/4/2020
+Today I added code to sweep through some different probabilities and trace them out over the course of a simulation. I also added code to plot the trajectory of a simulation power output, and saved NumPy arrays to be able to replicate these results.
+
+3/6/2020
+Today I worked on figuring out what is wrong with the code that shuts down turbines. There seems to be an issue in which only turbine_2 is allowed to select actions. I am not yet sure what the issue with this is.
+
+3/9/2020
+Notes:
+- When changing the bounds of the wind direction from -90 to 90, the wind turbine failure recovery seemed to improve dramatically.
+- I have also noticed that the quasi-dynamic training phase is significantly worse when the three state (sp_dir_yaw) algorithm is used, rather than the two state.
+Today I fixed (I think) the issue in recovery from loss of a turbine by decreasing the size of the state space. I am not sure why this fixed the issue, but the power response is able to converge very nicely back to the FLORIS optimum after a turbine failure. I also changed the plotting code in example_wind_profiles.py to show this relationship.
+
+3/18/2020
+Today I realized that the plot in the ACC paper that concerns adjustment to a yaw offset error does not give as much information as expected. I moved the code that handles the yaw offset to the Turbine object, but I am running into issues regarding yaw angles less than zero.
+
+4/17/2020
+Today I discovered that optimizing with only positive yaw angles makes a difference as opposed to optimizing with both positive and negative yaw angles. This is because I leave the number of states the same, so with a larger range the change in yaw angle for every action is larger with a larger range of yaw angles, so the power output looks more variable.
+
+4/24/2020
+Today I tried to implement a new action space. I added the "jump" action type, which means that rather than increment, decrement, and stay actions, a turbine simply chooses what yaw angle it wants to jump to. This does not converge, mostly because there are now 25 different states, and with stochastic action selection this would be very difficult to test all state-action pairs. I have also tried to implement a new reward scheme, in which the reward is based on the difference between the value function output and the baseline value that is determined from the FLORIS optimization. This works a little. This is a difference scheme from before, because it does not assign reward based on the difference in value function output from one state to another, instead measuring all of the values relative to the baseline. Thus, it is possible to receive negative rewards constantly, it is just hoped that as a turbine moves towards the optimal it receives rewards that are less and less negative. I wonder if it might converge better on an episode that takes place after the first one, since the agent would have had a chance to observe more states. I have also tried to write a new value function that subtracts out the baseline, but that is used in the same way as before (ie the difference from one state to the next determines the reward signal). However, this is ultimately meaningless, because the steady offset is canceled out by the differencing process.
+
+4/27/2020
+There are now 2 additional factors to keep track of, in addition to the normal considerations of reward signal, coordination, etc.
+- Yaw action type: jump, step, or skew
+- Reward function: differential or absolute (this is not controlled by a variable, but must be changed manually in update_Q)
+
+4/29/2020
+Right now I am trying to figure out how disincentivize "bad" states. Generating reward based only on the differential from one state to another seems to not achieve this.
+
+5/22/2020
+Today I began to work on using the Q-table, not the n-table, as a LUT, because I think this will have a significant impact on the performance of the algorithm in the quasi-dynamic environment. The gradient-based approach does not do well in an uncoordinated coordination.
+
+6/1/2020
+Today I was able to come up with a new Q-LUT reading technique. I apply a Gaussian blur down each column, and then I look for the first instance in which the "decrease" action is larger than the "increase" value. A couple of other notes:
+- with one turbine neighborhoods, turbine_0 does not reach 25 degrees
+- I think the gradient training method will lead to overfitting. I am working on figuring out how to best demonstrate this.
+- I am also working on making the locking less strict, which might more closely emulate the simultaneous turbine execution environment.
+
+6/2/2020
+Today I realized that (I think) the gradient approximation technique does work, just not with multiple neighborhoods. I also rediscovered (I think) that the code that is intended to allow the wind farm to ramp to a certain yaw angle messes up the normal quasi-dynamic operation.
+
+6/3/2020
+Today I worked on fixing the issues with the turbine ramping code. It seems to be causing problems when it gets to the non-ramping section of the quasi-dynamic simulation, which is usually caused when an extraneous observe_state() function call is made.
+
+6/5/2020
+Today I looked into Deep Q Networks, and began to add in classes on the state_space branch to abstract away the Q update method so that it could be either a table or an ANN.
+
+6/8/2020
+Today I began to work on propagating wind direction through the farm. To accomplish this, I will be using the wind farm based on the pre-wind direction change value.
+
+8/5/2020
+Where I stand on dynamic floris: buffer works, but the old wind speed is being buffered. I think this is because I am merely changing input speed without calling reinitialize_flow_field in FlorisInterface. I need to figure out how to do this w/o overwriting the wind map.
+
+8/25/2020
+Today I created the Simulator object which is intended to test various training implementations against each other. Next I will need to evaluate energy production over a period of time and also implement the "learn" boolean in the Simulator.simulate method.
+
+8/31/2020
+Today I mostly finalized the move from FLORIS v1 to FLORIS v2. The gradient optimization works, but it does not return the yaw angles I would have thought, maybe because of the Gaussian blur. Tomorrow I would like to address this issue and then run a LUT comparison between the gradient and SLSQP methods. I also still need to implement the learning functionality in the Simulator object.
