@@ -245,7 +245,7 @@ class FlorisInterface(LoggerBase):
                 wind_map.input_speed
             turbulence_intensity = self.TKE_to_TI(turbulence_kinetic_energy, wind_speed)
 
-        if not isinstance(wind_speed, list) and sim_time is not None: 
+        if not isinstance(wind_speed, list) and wind_speed is not None and sim_time is not None: 
             self.wind_speed_change = True
             self.propagate_wind_speed = wind_speed
             self.floris.farm.flow_field.propagate_wind_speeds(self.floris.farm.wind_map.input_speed, wind_speed, sim_time, first_x=self.first_x)

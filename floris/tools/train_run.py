@@ -123,14 +123,14 @@ def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
 
             # reinitialize farm wind direction to next wind direction in the profile 
             if wind_direction_profile is not None and i in wind_direction_profile: 
-                diff = (wind_direction_profile[i] - 270) - fi.floris.farm.flow_field.wind_direction
+                #diff = (wind_direction_profile[i] - 270) - fi.floris.farm.flow_field.wind_direction
                 fi.reinitialize_flow_field(wind_direction=wind_direction_profile[i])
                 #print("Wind direction reset to ", wind_direction_profile[i])
                 # TODO: figure out if this is best place to put this
                 server.reset_coordination_windows()
 
                 # NOTE: I am currently trying to implement this in floris_agent, so that I can use absolute yaw angles
-                server.change_wind_direction(diff)
+                #server.change_wind_direction(diff)
                 # print("Wind direction changed by", diff, "degrees")
                 # yaw_angles = [turbine.yaw_angle - diff for turbine in fi.floris.farm.turbines]
                 # fi.calculate_wake(yaw_angles=yaw_angles)
