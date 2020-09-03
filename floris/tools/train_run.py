@@ -43,7 +43,7 @@ def _reintialize_turbine_value(turbine_agents, server):
 
 def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
     wind_direction_profile=None, action_selection="boltzmann", reward_signal="constant", \
-    coord=None, opt_window=100, print_iter=True, num_episodes=1, num_iterations=None):
+    coord=None, opt_window=100, reset_at_wind_change=False, print_iter=True, num_episodes=1, num_iterations=None):
     """
     This method is intended to train a set of agents using a given wind profile and user 
     determined parameters.
@@ -75,7 +75,8 @@ def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
             - down_first: Optimize from downstream to upstream
         opt_window: Number of simulation iterations that each turbine or group of turbines is
         given to optimize, if coord is not None.
-        print_iter: Boolean, whether or not to print the simulation iteration every 1000 iterations
+        print_iter: Boolean, whether or not to print the simulation iteration every 1000 iterations.
+        reset_at_wind_change: Boolean, whether or not yaw angles should be reset to 0 when the wind conditions change.
     """
     # # Initialize the value function value that each turbine broadcasts to the server.
     # for agent in turbine_agents:
@@ -123,8 +124,9 @@ def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
 
             # reinitialize farm wind direction to next wind direction in the profile 
             if wind_direction_profile is not None and i in wind_direction_profile: 
+                print("Changing wind direction to", wind_direction_profile[i])
                 #diff = (wind_direction_profile[i] - 270) - fi.floris.farm.flow_field.wind_direction
-                fi.reinitialize_flow_field(wind_direction=wind_direction_profile[i])
+                fi.reinitialize_flow_field(wind_direction=wind_direction_profile[i]+270)
                 #print("Wind direction reset to ", wind_direction_profile[i])
                 # TODO: figure out if this is best place to put this
                 server.reset_coordination_windows()
@@ -134,6 +136,11 @@ def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
                 # print("Wind direction changed by", diff, "degrees")
                 # yaw_angles = [turbine.yaw_angle - diff for turbine in fi.floris.farm.turbines]
                 # fi.calculate_wake(yaw_angles=yaw_angles)
+                fi.calculate_wake([turbine.yaw_angle for turbine in fi.floris.farm.turbines])
+                # if reset_at_wind_change: 
+                #     #fi.calculate_wake([0 for _ in fi.floris.farm.turbines])
+
+                #     _reintialize_turbine_value(turbine_agents, server)
 
             # reinitialize farm wind speed to next wind speed in the profile 
             if wind_speed_profile is not None and i in wind_speed_profile: 
@@ -144,6 +151,11 @@ def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
 
                 # TODO: determine if _reinitialize_turbine_value should be called here or not
                 #_reintialize_turbine_value(turbine_agents, server)
+                fi.calculate_wake([turbine.yaw_angle for turbine in fi.floris.farm.turbines])
+                # if reset_at_wind_change: 
+                #     #fi.calculate_wake([0 for _ in fi.floris.farm.turbines])
+
+                #     _reintialize_turbine_value(turbine_agents, server)
 
             if i%1000== 0 and print_iter:
                 print("Iteration:", str(i))
@@ -174,7 +186,7 @@ def train_farm(fi, turbine_agents, server, wind_speed_profile, sim_factor=1, \
         yaw_opt = YawOptimization(fi, minimum_yaw_angle=min_yaw, maximum_yaw_angle=max_yaw)
 
         # Perform optimization
-        best_yaw_angles = yaw_opt.optimize()
+        best_yaw_angles = yaw_opt.optimize(verbose=False)
         # print(best_yaw_angles)
         # print([turbine_yaw_angles[i][-1] for i in range(len(turbine_agents))])
 
