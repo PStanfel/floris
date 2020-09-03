@@ -69,7 +69,7 @@ class Trainer():
         if "yaw_angles" not in self.parameters:
             print("Using default yaw angle resolution...")
             high = 45
-            low = 0
+            low = -10
             step = 0.3
             self.parameters["yaw_angles"] = np.arange(low, high, step)#np.linspace(low, high, 100)#high-low+1)
         if "neighborhood_dims" not in self.parameters:
@@ -171,7 +171,7 @@ class Trainer():
                 wind_direction_state = fa.State(name="wind_direction", method=model.wind_direction, state_type="discrete", discrete_values=wind_dir, error_type="none", controlled=False)
                 yaw_angle_state = fa.State(name="yaw_angle", method=model.yaw_angle, state_type="discrete", discrete_values=yaw, error_type="none", controlled=True)
 
-                sim_context = fa.SimContext([wind_speed_state, yaw_angle_state])#wind_direction_state, yaw_angle_state])
+                sim_context = fa.SimContext([wind_speed_state, wind_direction_state, yaw_angle_state])
 
                 agent = TurbineAgent(aliases[index], "no one of consequence", 
                                     farm_turbines=farm_turbines, 
@@ -207,7 +207,8 @@ class Trainer():
             wind_speed_profile = tr.create_constant_wind_profile(wind_speeds, num_iterations)
 
             # TODO: add code to make a valid wind direction profile (will require modifying train_farm)
-            wind_direction_profile = tr.create_constant_wind_profile([270], max(wind_speed_profile.keys()))
+            wind_dirs= self.parameters["wind_directions"]
+            wind_direction_profile = tr.create_constant_wind_profile(wind_dirs, num_iterations)
 
         action_selection = self.tm.action_selection
         reward_signal = self.tm.reward_signal
@@ -217,7 +218,7 @@ class Trainer():
         if not self.dyn_train:
             [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards, prob_list] = \
             tr.train_farm(fi, turbine_agents, server, wind_speed_profile, wind_direction_profile=wind_direction_profile, action_selection=action_selection, reward_signal=reward_signal,\
-                coord=coord, opt_window=opt_window, print_iter=False)
+                coord=coord, opt_window=opt_window, reset_at_wind_change=True, print_iter=True)
         else:
             [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards] = \
             tr.run_farm(fi, turbine_agents, server, wind_speed_profile, wind_direction_profile=wind_direction_profile, action_selection=action_selection, reward_signal=reward_signal)
@@ -300,7 +301,7 @@ class LUT():
                         # NOTE: probably don't need this, so probably don't need to import q_learn
                         state_indices = q.find_state_indices(self.discrete_states, state)
 
-                        table[i][j] = self.agent.utilize_q_table(state_name="yaw_angle",state_map=state_map)#axis=[0,1], state=state)
+                        table[i][j] = self.agent.utilize_q_table(state_name="yaw_angle",state_map=state_map, print_q_table=True)#axis=[0,1], state=state)
                 return table
             else:
                 # add dummy yaw angle
