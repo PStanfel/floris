@@ -97,7 +97,7 @@ class FlorisModel():
                           "wind_direction": self.wind_direction}
 
     def yaw_angle(self):
-        
+
         yaw_angle = self.turbine.yaw_angle + self.wind_direction()
         #print("Wind direction to add to yaw angle:", self.fi.floris.farm.wind_direction)
         # if any(self.fi.wind_dir_change_turb):
