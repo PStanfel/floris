@@ -617,7 +617,7 @@ class TurbineAgent():
         self.k = [0.9, 1, 0]
         #self.n = np.zeros_like(self.n)
 
-    def utilize_q_table(self, state_name="yaw_angle", state_map={"wind_speed":None, "wind_direction":None}):
+    def utilize_q_table(self, state_name="yaw_angle", state_map={"wind_speed":None, "wind_direction":None}, print_q_table=False):
         """
         Uses a filled Q-table to deterministically determine which index in the state space maximizes
         expected reward. NOTE: this method is still in development and does not yet have complete 
@@ -643,6 +643,13 @@ class TurbineAgent():
         #states = self.sim_context.index_split(self.n, state_name, state_map)
         states_Q = self.sim_context.index_split(self.Q, state_name, state_map)
         blurred_Q = gaussian_filter(states_Q, sigma=[7,0])
+
+        read_table = states_Q
+
+        if print_q_table:
+            plt.matshow(read_table)
+            title = "Wind Speed: " + str(state_map["wind_speed"]) + "Wind Direction: " + str(state_map["wind_direction"])
+            plt.title(title)
         #plt.matshow(np.reshape(blurred_Q, (1, len(blurred_Q))))
         #max_index = np.argmax(states)
         #max_index_Q = np.argmax(states_Q[:,1])
@@ -654,19 +661,19 @@ class TurbineAgent():
         #         break
         if state_values.observed:
             max_index_Q = 0
-            diffs = blurred_Q[:,2] - blurred_Q[:,0]
+            diffs = read_table[:,2] - read_table[:,0]
             for i,diff in enumerate(diffs):
                 if diff < 0:
                     max_index_Q = i
                     break
-                if blurred_Q[i,0] == blurred_Q[i,1] and blurred_Q[i,1] == blurred_Q[i,2]:
+                if read_table[i,0] == read_table[i,1] and read_table[i,1] == read_table[i,2]:
                     # if there are no angles found for which the first condition is true, choose
                     # the first instance in which all actions have the same value
                     # NOTE: this assumes only three actions
                     max_index_Q = i
                     break
         else:
-            max_index_Q = np.argmax(blurred_Q)
+            max_index_Q = np.argmax(read_table)
 
         # zero_crossings_inc = np.where(np.diff(np.sign(blurred_Q[:,2])))[0]
         # zero_crossings_dec = np.where(np.diff(np.sign(blurred_Q[:,0])))[0]
