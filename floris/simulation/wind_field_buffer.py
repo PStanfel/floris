@@ -322,7 +322,6 @@ class WindFieldBuffer():
 
             delayed_time: The simulation time that the wake should come into effect at (int).
         """
-        print("Wake deficit added to", self.number, "by", index, "at time", delayed_time)
         # NOTE: I think bisect_left is the correct choice, maybe bisect_right
         slice_index = bisect.bisect_left([wake_deficit[1] for wake_deficit in self._future_wake_deficits[index]], delayed_time)
 

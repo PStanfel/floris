@@ -912,7 +912,6 @@ class FlowField:
                                     self.initialized = True
 
                         if turbine.send_wake or (look_ahead and sim_time is not None):
-                            print("Wind direction at moment of wake propagation is", self.wind_map.input_direction, self.wind_map.turbine_wind_direction)
                             self.propagate_wake_effects(turb_u_wake, turbine.number, sim_time, first_x=first_x)
                             turbine.send_wake = False
 

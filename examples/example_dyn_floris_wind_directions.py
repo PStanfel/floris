@@ -36,7 +36,7 @@ x_res = 200
 y_res = 200
 
 # total simulation time
-total_time = 1000
+total_time = 300
 
 # **************************************** Initialization **************************************** #
 # Initialize the FLORIS interface fi
@@ -69,8 +69,8 @@ if visualize:
 
 for sim_time in range(total_time):
     iterations.append(sim_time)
-    #if sim_time % 100 == 0:
-    print("Iteration:", sim_time)
+    if sim_time % 100 == 0:
+        print("Iteration:", sim_time)
     # if sim_time == 1:
     #     fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
     # if sim_time == 15:
