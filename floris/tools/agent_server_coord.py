@@ -638,7 +638,7 @@ class TurbineAgent():
             state_map: Dictionary mapping state names to their setpoint. Setting state names to None means that the value returned from the state space will be used.
         """
         
-
+        print("Reading Q table with state map", state_map)
         state_values = self.sim_context.return_state(state_name)
         #states = self.sim_context.index_split(self.n, state_name, state_map)
         states_Q = self.sim_context.index_split(self.Q, state_name, state_map)
@@ -666,12 +666,12 @@ class TurbineAgent():
                 if diff < 0:
                     max_index_Q = i
                     break
-                if read_table[i,0] == read_table[i,1] and read_table[i,1] == read_table[i,2]:
-                    # if there are no angles found for which the first condition is true, choose
-                    # the first instance in which all actions have the same value
-                    # NOTE: this assumes only three actions
-                    max_index_Q = i
-                    break
+                # if read_table[i,0] == read_table[i,1] and read_table[i,1] == read_table[i,2]:
+                #     # if there are no angles found for which the first condition is true, choose
+                #     # the first instance in which all actions have the same value
+                #     # NOTE: this assumes only three actions
+                #     max_index_Q = i
+                #     break
         else:
             max_index_Q = np.argmax(read_table)
 
