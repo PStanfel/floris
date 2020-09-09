@@ -76,6 +76,8 @@ class FlowField:
         # boolean that keeps track of whether wind field needs to be recalculated for visualization
         self.wind_change_resolved = False
 
+        self.old_turbine_wind_direction = None
+
     def _discretize_turbine_domain(self):
         """
         Create grid points at each turbine
@@ -521,6 +523,7 @@ class FlowField:
             self.turbine_map = turbine_map
         if wind_map is not None:
             self.wind_map = wind_map
+            #print("Wind Map:", self.wind_map.input_direction)
         if wind_shear is not None:
             self.wind_shear = wind_shear
         if wind_veer is not None:
@@ -558,17 +561,67 @@ class FlowField:
             ]
             turbine.reset_velocities()
 
-    def propagate_wind_directions(self, old_wind_direction, sim_time):
-        new_wind_direction = self.wind_direction
-        self.wind_direction = old_wind_direction
-
+    def propagate_wake_effects(self, turb_u_wake, index, sim_time, first_x=None):
+        #self.wind_speed = old_wind_speed
         # define the center of rotation with reference to 270 deg
         center_of_rotation = Vec3(0, 0, 0)
+        # Rotate the turbines such that they are now in the frame of reference
+        # of the wind direction simpifying computing the wakes and wake overlap
 
+        # if the wind direction changed, want to use the previous turbine wind directions to propagate the wake effects
+        if self.old_turbine_wind_direction is not None:
+            turbine_wind_direction = self.old_turbine_wind_direction
+        else:
+            turbine_wind_direction = self.wind_map.turbine_wind_direction
+        rotated_map = self.turbine_map.rotated(
+            turbine_wind_direction, center_of_rotation
+        )
+
+        # reset to None
+        #self.old_turbine_wind_direction = None
+
+        # sort the turbine map
+        sorted_map = rotated_map.sorted_in_x_as_list()
+
+        input_wind_speed = self.wind_map.input_speed
+        
+        if first_x is None:
+            # compare to the turbine that was furthest upstream in the old map
+            coord = sorted_map[0][0]
+            first_x = coord.x1
+
+        comparison_x = first_x
+        for (temp_coord, temp_turbine) in sorted_map:
+            if temp_turbine.number == index:
+                comparison_x = temp_coord.x1
+        
+        # this assumes that the most upstream turbine relative to the wind direction experiences the wind speed change first
+        wind_speed = input_wind_speed[0]
+        for i, (temp_coord,temp_turbine) in enumerate(sorted_map):
+            # if len(input_wind_speed) == 1:
+            #     wind_speed = input_wind_speed[0]
+            # else:
+            #     wind_speed = input_wind_speed[i]
+
+            if temp_coord.x1 > comparison_x and index != temp_turbine.number:
+                x = temp_coord.x1 - first_x
+                U_inf = wind_speed
+                tau = x / U_inf
+                delay = round(tau) + sim_time
+                temp_turbine.wind_field_buffer.add_wake_deficit(turb_u_wake, index, delay)
+                #print(temp_turbine.number, "given new wake deficit by", index, "turbine_wind_direction was", turbine_wind_direction, "first_x was", first_x, "and temp_coord was", temp_coord.x1, "at time", delay)
+
+
+    def propagate_wind_directions(self, old_turbine_wind_direction, new_wind_direction, sim_time, first_x=None):
+        # define the center of rotation with reference to 270 deg
+        center_of_rotation = Vec3(0, 0, 0)
         # Rotate the turbines such that they are now in the frame of reference
         # of the wind direction simpifying computing the wakes and wake overlap
         rotated_map = self.turbine_map.rotated(
-            self.wind_direction, center_of_rotation)
+            old_turbine_wind_direction, center_of_rotation
+        )
+
+        self.old_turbine_wind_direction = old_turbine_wind_direction
 
         # sort the turbine map
         sorted_map = rotated_map.sorted_in_x_as_list()
@@ -578,63 +631,34 @@ class FlowField:
         sorted_map[0][1].send_wake = True
 
         for i, (temp_coord,temp_turbine) in enumerate(sorted_map):
-            temp_turbine.wind_field_buffer.initialize_wind_direction(old_wind_direction, temp_coord, overwrite=(i==0))
+            old_wind_direction = old_turbine_wind_direction[i]
+
+            temp_turbine.wind_field_buffer.initialize_wind_direction(old_wind_direction, new_wind_direction-270, temp_coord, overwrite=(i==0))
+
+            wind_speed = self.wind_map.turbine_wind_speed[i]
 
             if temp_coord.x1 > coord.x1:
                 x = temp_coord.x1 - coord.x1
-                U_inf = self.wind_speed
+                U_inf = wind_speed
                 tau = x / U_inf
                 #future_wind_speed = (self.wind_speed, round(tau) + sim_time)
                 delay = round(tau) + sim_time
                 #print(delay)
-                temp_turbine.wind_field_buffer.add_wind_direction(old_wind_direction, new_wind_direction, delay, temp_coord)
+                
+                #print(temp_turbine.number, "given a new wind direction", new_wind_direction, "at", delay, "by", sorted_map[0][1].number)
+
+                temp_turbine.wind_field_buffer.add_wind_direction(old_wind_direction, new_wind_direction-270, delay, temp_coord)
 
                 # NOTE: below code is not used, currently kept to avoid errors
                 future_wind_dir = (old_wind_direction, delay, temp_coord)
-                #print(temp_turbine.number, "given a new wind direction", self.wind_direction, "at", delay, "by", sorted_map[0][1].number)
-                if not any([delay == wind_dir[1] for wind_dir in temp_turbine.future_wind_dirs]):
-                    temp_turbine.future_wind_dirs.append(future_wind_dir)
+                
+                # if not any([delay == wind_dir[1] for wind_dir in temp_turbine.future_wind_dirs]):
+                #     temp_turbine.future_wind_dirs.append(future_wind_dir)
 
         self.wind_direction = new_wind_direction
 
-    def propagate_wake_effects(self, turb_u_wake, index, sim_time, first_x=None):
-        #self.wind_speed = old_wind_speed
-        # define the center of rotation with reference to 270 deg
-        center_of_rotation = Vec3(0, 0, 0)
-        # Rotate the turbines such that they are now in the frame of reference
-        # of the wind direction simpifying computing the wakes and wake overlap
-        rotated_map = self.turbine_map.rotated(
-            self.wind_map.turbine_wind_direction, center_of_rotation
-        )
-
-        # sort the turbine map
-        sorted_map = rotated_map.sorted_in_x_as_list()
-
-        input_wind_speed = self.wind_map.input_speed
-        
-        if first_x is None:
-            # compare to the turbine that was furthest upstream in the old map
-            coord = sorted_map[index][0]
-            first_x = coord.x1
-        # this assumes that the most upstream turbine relative to the wind direction experiences the wind speed change first
-        wind_speed = input_wind_speed[0]
-        for i, (temp_coord,temp_turbine) in enumerate(sorted_map):
-            # if len(input_wind_speed) == 1:
-            #     wind_speed = input_wind_speed[0]
-            # else:
-            #     wind_speed = input_wind_speed[i]
-
-            if temp_coord.x1 > first_x and index != temp_turbine.number:
-                x = temp_coord.x1 - first_x
-                U_inf = wind_speed
-                tau = x / U_inf
-                delay = round(tau) + sim_time
-                temp_turbine.wind_field_buffer.add_wake_deficit(turb_u_wake, index, delay)
-
 
     def propagate_wind_speeds(self, old_input_wind_speed, new_wind_speed, sim_time, first_x=None):
-
-         #self.wind_speed = old_wind_speed
         # define the center of rotation with reference to 270 deg
         center_of_rotation = Vec3(0, 0, 0)
         # Rotate the turbines such that they are now in the frame of reference
@@ -657,6 +681,7 @@ class FlowField:
             visualize = False
 
         for i, (temp_coord,temp_turbine) in enumerate(sorted_map):
+            # this assumes input speed is same size as number of turbines
             if len(old_input_wind_speed) == 1:
                 old_wind_speed = old_input_wind_speed[0]
             else:
@@ -887,6 +912,7 @@ class FlowField:
                                     self.initialized = True
 
                         if turbine.send_wake or (look_ahead and sim_time is not None):
+                            print("Wind direction at moment of wake propagation is", self.wind_map.input_direction, self.wind_map.turbine_wind_direction)
                             self.propagate_wake_effects(turb_u_wake, turbine.number, sim_time, first_x=first_x)
                             turbine.send_wake = False
 
@@ -925,7 +951,7 @@ class FlowField:
             self.x, self.y, self.z = self._rotated_grid(
                 -1 * self.wind_map.grid_wind_direction, center_of_rotation
             )
-
+        self.old_turbine_wind_direction = None
         return first_x
 
     # Getters & Setters

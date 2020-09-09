@@ -95,7 +95,8 @@ class WindFieldBuffer():
         return np.array(self._current_wind_field_speeds)
 
     def add_wind_direction(self, old_wind_direction, new_wind_direction, sim_time, old_coord):
-        self._future_wind_dirs.append((old_wind_direction, new_wind_direction, sim_time, old_coord))
+        # NOTE: temporarily removing coord and old_wind_direction
+        self._future_wind_dirs.append((new_wind_direction, sim_time))
 
     def add_wind_speed(self, new_wind_speed, delayed_time):
         """
@@ -135,7 +136,7 @@ class WindFieldBuffer():
         #print(self.number, "called initialize_wind_speed, current wind speed is", self._current_wind_speed)
         return
 
-    def initialize_wind_direction(self, wind_direction, coord, overwrite=False):
+    def initialize_wind_direction(self, old_wind_direction, new_wind_direction, coord, overwrite=False):
         """
         This method is intended to set the initial wind direction if it is not already set.
         NOTE: This method is currently not implemented correctly.
@@ -148,12 +149,12 @@ class WindFieldBuffer():
             overwrite: Whether or not the current wind direction should be overwritten (boolean).
         """
 
-        if self._current_wind_dir is None:
-            self._current_wind_dir = wind_direction
+        if self._current_wind_dir is None and not overwrite:
+            self._current_wind_dir = old_wind_direction
             self._current_coord = coord
             #print("Current wind direction None, setting to", wind_direction)
         elif overwrite:
-            self._current_wind_dir = wind_direction
+            self._current_wind_dir = new_wind_direction
             self._current_coord = coord
             #print("Overwrite is True, setting wind direction to", wind_direction)
         return
@@ -176,21 +177,23 @@ class WindFieldBuffer():
         """
 
         if len(self._future_wind_dirs) > 0 and self._future_wind_dirs[0][1] == sim_time:
-            send_wake_temp = True
+            send_wake_temp = False#True
             self._current_wind_dir = self._future_wind_dirs[0][0]
-            self._current_coord = self._future_wind_dirs[0][3]
+            #self._current_coord = self._future_wind_dirs[0][3]
             self._future_wind_dirs.pop(0)
         else:
             send_wake_temp = False
 
-        if self._current_wind_dir is not None and self._current_coord is not None:
+        if self._current_wind_dir is not None:# and self._current_coord is not None:
             wind_direction_set = self._current_wind_dir
-            coord_set = self._current_coord
+            #coord_set = self._current_coord
         else:
             wind_direction_set = wind_direction
-            coord_set = coord
+            #coord_set = coord
 
-        return (wind_direction_set, coord_set, send_wake or send_wake_temp)
+        # NOTE: temporarily removing coord
+        #print("Returning wind direction", wind_direction_set)
+        return (wind_direction_set, send_wake or send_wake_temp)
 
     def get_wind_speed(self, wind_speed, send_wake, sim_time):
         """
@@ -241,10 +244,10 @@ class WindFieldBuffer():
             if wake_effect[1] == sim_time:
                 current_effects.append(wake_effect[0])
 
-        #if len(current_effects) >= 1: print("Well, this should not happen.")
         if len(current_effects) == 0:
             return wake_deficit
         else:
+            if index == self.number: print("loading wake deficit for self")
             return np.mean(current_effects, axis=0)
 
     def get_u_wake(self, wake_dims, send_wake, sim_time):
@@ -301,7 +304,7 @@ class WindFieldBuffer():
         #         self._current_wake_deficits[index] = (wake_deficit, None)
 
         if self._current_wake_deficits[index] is None:
-            
+            print("Wake deficit initialized")
             self._current_wake_deficits[index] = wake_deficit
 
             #print(self.number, "initializes wake deficit.")
@@ -319,7 +322,7 @@ class WindFieldBuffer():
 
             delayed_time: The simulation time that the wake should come into effect at (int).
         """
-
+        print("Wake deficit added to", self.number, "by", index, "at time", delayed_time)
         # NOTE: I think bisect_left is the correct choice, maybe bisect_right
         slice_index = bisect.bisect_left([wake_deficit[1] for wake_deficit in self._future_wake_deficits[index]], delayed_time)
 

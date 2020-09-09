@@ -65,10 +65,11 @@ class FlorisInterface(LoggerBase):
         self.floris = Floris(input_file=input_file, input_dict=input_dict)
 
         self.wind_speed_change = False
-        self.wind_dir_change = (False, 270.0)
+        self.wind_dir_change = False#(False, 270.0)
 
         # keeps track of steady-state conditions so that steady-state can be evaluated alongside dynamic
         self.steady_state_wind = None
+        self.steady_state_wind_direction = None
 
         # initialize to zero, will be updated in reinitialize_flow_field
         self.wind_dir_shift = 0
@@ -116,6 +117,7 @@ class FlorisInterface(LoggerBase):
         prev_yaw_angles = [turbine.yaw_angle for turbine in self.floris.farm.turbines]
 
         input_speed = []
+        input_direction = []
         wind_map = self.floris.farm.wind_map
         #if sim_time == 0: print(wind_map.input_speed)
         for i, turbine in enumerate(self.floris.farm.turbines):
@@ -125,13 +127,20 @@ class FlorisInterface(LoggerBase):
             else:
                 wind_speed = wind_map.input_speed[i]
 
+            wind_direction = wind_map.turbine_wind_direction[i]
+            #print("Wind direction for turbine", i, "is", wind_direction)
             (wind_speed, turbine.send_wake) = turbine.wind_field_buffer.get_wind_speed(wind_speed, turbine.send_wake, sim_time)
 
+            (wind_direction, turbine.send_wake) = turbine.wind_field_buffer.get_wind_direction(wind_direction, None, turbine.send_wake, sim_time)
+            wind_direction = wind_direction + 270
             input_speed.append(wind_speed)
+            input_direction.append(wind_direction)
 
-        if (self.wind_speed_change and sim_time is not None) or (sim_time is not None and any(angle_changes)) or sim_time == 0:
+        if (self.wind_speed_change and sim_time is not None) or (self.wind_dir_change and sim_time is not None) or (sim_time is not None and any(angle_changes)) or sim_time == 0:
             self.floris.farm.flow_field.calculate_wake(look_ahead=True, sim_time=sim_time, propagate_wind_speed=self.propagate_wind_speed, first_x=self.first_x)
+            # this flag is usually flipped in get_hor_plane() (I think)
             #self.wind_speed_change = False
+            self.wind_dir_change = False
 
         if yaw_angles is not None:
             for i,yaw_angle in enumerate(yaw_angles):
@@ -162,7 +171,7 @@ class FlorisInterface(LoggerBase):
                 self.floris.farm.set_yaw_angles(yaw_angles)
 
 
-        if any(angle_changes):
+        if any(angle_changes) and sim_time is not None:
             self.floris.farm.flow_field.calculate_wake(look_ahead=True, sim_time=sim_time, propagate_wind_speed=self.propagate_wind_speed)
 
             if hasattr(self, "vis_flow_field"):
@@ -176,9 +185,9 @@ class FlorisInterface(LoggerBase):
 
         if sim_time is not None:
             #BUG: can't hardcode in the wind layout
-            self.reinitialize_flow_field(wind_speed=input_speed, steady_state=False)#wind_layout=[ [0, 882.0], [0, 0] ], steady_state=False)
+            self.reinitialize_flow_field(wind_speed=input_speed, wind_direction=input_direction, steady_state=False)#wind_layout=[ [0, 882.0], [0, 0] ], steady_state=False)
         else:
-            self.reinitialize_flow_field(wind_speed=self.steady_state_wind)#, wind_layout=[ [0, 882.0], [0, 0] ])
+            self.reinitialize_flow_field(wind_speed=self.steady_state_wind, wind_direction=self.steady_state_wind_direction)#, wind_layout=[ [0, 882.0], [0, 0] ])
 
         self.floris.farm.flow_field.calculate_wake(
             no_wake=no_wake,
@@ -255,15 +264,18 @@ class FlorisInterface(LoggerBase):
                 self.vis_flow_field.wind_change_resolved = False
                 self.vis_flow_field.wind_map.input_speed = [wind_speed]
 
-        if not isinstance(wind_direction, list) and wind_direction is not None:
+        if not isinstance(wind_direction, list) and wind_direction is not None and sim_time is not None:
+            self.wind_dir_change = True
+            self.floris.farm.flow_field.propagate_wind_directions(self.floris.farm.wind_map.turbine_wind_direction, wind_direction, sim_time)
             old_wind_direction = self.floris.farm.flow_field.wind_map.input_direction[0]
 
-            wind_dir_shift = wind_direction - old_wind_direction
+            # NOTE: temporarily commenting out this part about nudging the turbines
+            #wind_dir_shift = wind_direction - old_wind_direction
 
-            yaw_angles = np.array([turbine.yaw_angle for turbine in self.floris.farm.turbines])
+            #yaw_angles = np.array([turbine.yaw_angle for turbine in self.floris.farm.turbines])
 
             # nudge turbines opposite the wind direction shift
-            self.floris.farm.set_yaw_angles(yaw_angles - wind_dir_shift)
+            #self.floris.farm.set_yaw_angles(yaw_angles - wind_dir_shift)
 
         if wind_layout or layout_array is not None:
             # Build turbine map and wind map (convenience layer for user)
@@ -362,6 +374,7 @@ class FlorisInterface(LoggerBase):
 
         if steady_state:
             self.steady_state_wind = self.floris.farm.wind_map.input_speed
+            self.steady_state_wind_direction = self.floris.farm.wind_map.input_direction
 
         self.floris.farm.flow_field.reinitialize_flow_field(
             wind_shear=wind_shear,
