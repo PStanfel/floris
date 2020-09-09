@@ -263,7 +263,7 @@ class LUT():
 
         return
 
-    def read(self, state=None, all_states=True):
+    def read(self, state=None, all_states=True, print_q_table=False):
         """
         This method is designed to provide a high-level read of the LUT that is abstracted away from the
         algorithm that created it. 
@@ -273,6 +273,7 @@ class LUT():
             - all_states: Boolean. If True, read() will return a table that has a yaw angle for every yaw 
                 angle or direction in the discrete states, and state will be ignored. If False, will only 
                 read the table entry for the given state.
+            - print_q_table: Boolean, determines whether or not the Q-table will be displayed.
         """
         if not all_states and state is None:
             raise ValueError("State must be specified if all_states is False.")
@@ -301,7 +302,7 @@ class LUT():
                         # NOTE: probably don't need this, so probably don't need to import q_learn
                         state_indices = q.find_state_indices(self.discrete_states, state)
 
-                        table[i][j] = self.agent.utilize_q_table(state_name="yaw_angle",state_map=state_map, print_q_table=True)#axis=[0,1], state=state)
+                        table[i][j] = self.agent.utilize_q_table(state_name="yaw_angle",state_map=state_map, print_q_table=print_q_table)#axis=[0,1], state=state)
                 return table
             else:
                 # add dummy yaw angle
@@ -312,7 +313,7 @@ class LUT():
 
                 state_map = {"wind_speed": state[0], "wind_direction": state[1]}
 
-                return self.agent.utilize_q_table(state_name="yaw_angle", state_map=state_map)
+                return self.agent.utilize_q_table(state_name="yaw_angle", state_map=state_map, print_q_table=print_q_table)
     
     #def _read_q_table(self, wind_speed, wind_direction):
 
