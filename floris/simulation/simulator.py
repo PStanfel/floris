@@ -117,7 +117,7 @@ class Simulator():
             if mode_measurement is not None:
                 self.setpoints = []
 
-                for turbine in self.fi.floris.farm.turbines:
+                for j,turbine in enumerate(self.fi.floris.farm.turbines):
                     setpoint = self.lut_dict[turbine.number].read(mode_measurement, all_states=False)
                     self.setpoints.append(setpoint)
 
@@ -125,11 +125,11 @@ class Simulator():
             yaw_angles = [None for _ in self.fi.floris.farm.turbines]
             if len(self.setpoints) > 0:
 
-                for i,(yaw_angle,setpoint) in enumerate(zip(current_yaw_angles,self.setpoints)):
+                for j,(yaw_angle,setpoint) in enumerate(zip(current_yaw_angles,self.setpoints)):
                     if abs(setpoint - yaw_angle) < self.yaw_rate:
-                        yaw_angles[i] = setpoint
+                        yaw_angles[j] = setpoint
                     else:
-                        yaw_angles[i] = yaw_angle + np.sign(setpoint-yaw_angle)*self.yaw_rate
+                        yaw_angles[j] = yaw_angle + np.sign(setpoint-yaw_angle)*self.yaw_rate
                         self.yawing = True
 
             self.fi.calculate_wake(yaw_angles=yaw_angles, sim_time=i)
@@ -140,8 +140,8 @@ class Simulator():
 
             yaw_angles = [turbine.yaw_angle for turbine in self.fi.floris.farm.turbines]
 
-            for i, yaw_angle in enumerate(yaw_angles):
-                turbine_yaw_angles[i].append(yaw_angle)
+            for j, yaw_angle in enumerate(yaw_angles):
+                turbine_yaw_angles[j].append(yaw_angle)
 
             self.fi.calculate_wake(yaw_angles=yaw_angles)
 
