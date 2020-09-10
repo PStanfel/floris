@@ -15,26 +15,27 @@ mean = 8
 TI = 5
 dev = (TI/100)*mean
 
-total_time = 2000
+total_time = 1000
 
-wind_speeds = [7,8,9,10,11,12,13,14]
-wind_dirs = [270]
+wind_speeds = [8,9,10]#,10,11,12,13,14]
+wind_dirs = [0, 0, 0]#, 5, 10]
 
-wind_speed_profile = {}
+wind_speed_profile_high_ti = {}
 
 for i in range(total_time):
-    wind_speed_profile[i] = np.random.normal(loc=mean, scale=dev)#np.random.uniform(low=8, high=8.3)
-wind_speed_profile[total_time] = np.nan
+    wind_speed_profile_high_ti[i] = np.random.normal(loc=mean, scale=dev)#np.random.uniform(low=8, high=8.3)
+wind_speed_profile_high_ti[total_time] = np.nan
+
 wind_dir_profile = tr.create_constant_wind_profile(wind_dirs, total_time)
-#wind_speed_profile = tr.create_constant_wind_profile(wind_speeds, total_time)
+wind_speed_profile = tr.create_constant_wind_profile(wind_speeds, total_time)
 
 wind_profiles = [wind_speed_profile, wind_dir_profile]
 
 # comment out wind_speeds entry if performing the stochastic sweep tests
-parameters = {"wind_profiles": wind_profiles, "wind_speeds": wind_speeds, "wind_directions": [270]}
+parameters = {"wind_speeds": wind_speeds, "wind_directions": wind_dirs}
 
 # NOTE: this is hardcoded right now
-num_turbines = 2
+num_turbines = 3
 
 #Static method
 static_tm = TrainingMethod(static=True, num_turbines=num_turbines, name="static")
@@ -86,10 +87,11 @@ for training_method in training_methods:
 
     plt.rcParams.update({'font.size':'25'})
 
+wind_profiles = [wind_speed_profile_high_ti, wind_dir_profile]
 
 for lut_set in lut_sets:
     for lut in lut_set:
-        print(lut.read(all_states=True))
+        print(lut.read(state=(8,0), all_states=False, print_q_table=True))
 
 for lut_set in lut_sets:
     simulator = Simulator(fi, lut_set)

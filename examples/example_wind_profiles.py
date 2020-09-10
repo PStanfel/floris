@@ -23,7 +23,7 @@ start = datetime.now()
 # define yaw and wind direction limits
 
 # same as defaults in trainer.py
-yaw_min = 0
+yaw_min = -45
 yaw_max = 45
 yaw_step = 0.3
 
@@ -71,15 +71,32 @@ observation = fa.observe_turbine_state_wind_speed#yaw
 modify_behavior = fa.modify_behavior_yaw
 #modify_behavior = fa.modify_behavior_sp_dir_yaw
 
+# this loop is to initialize a yaw angle state associate with each turbine. 
+# this allows one turbine to have the yaw angles of multiple other turbines in its own state space
+yaw_states = []
+for index,turbine in enumerate(fi.floris.farm.turbines):
+    model = fa.FlorisModel(fi, turbine, index)
+
+    state = fa.State(name="yaw_angle", method=model.yaw_angle, state_type="discrete", discrete_values=yaw, action_type="step")
+
+    yaw_states.append(state)
+
 turbine_agents = []
 for index,turbine in enumerate(fi.floris.farm.turbines):
         model = fa.FlorisModel(fi, turbine, index)
 
-        wind_speed_state = fa.State("wind_speed", model.wind_speed, wind_speed, "none", None, False)
-        #wind_direction_state = fa.State("wind_direction", model.wind_direction, wind_dir, "none", None, False)
-        yaw_angle_state = fa.State("yaw_angle", model.yaw_angle, yaw, "none", None, True)
+        wind_speed_state = fa.State(name="wind_speed", method=model.wind_speed, state_type="discrete", discrete_values=wind_speed)
+        wind_direction_state = fa.State(name="wind_direction", method=model.wind_direction, state_type="discrete", discrete_values=wind_dir)
+        # set observed back to True to return to normal behavior
+        yaw_angle_state = fa.State(name="yaw_angle", method=model.yaw_angle, state_type="discrete", discrete_values=yaw, controlled=True, observed=True, action_type="step")
 
-        sim_context = fa.SimContext([wind_speed_state, yaw_angle_state])
+        # yaw angle state should only be controllable if it is for the current turbine, the other yaw angle states cannot be controled (decentralized)
+        # NOTE: currently unused
+        turb_states = yaw_states
+        for i,turb_state in enumerate(turb_states):
+            turb_state.controlled = (i == index)
+
+        sim_context = fa.SimContext([wind_direction_state, yaw_angle_state])
 
         agent = TurbineAgent(aliases[index], discrete_states, 
                             farm_turbines=farm_turbines, 
@@ -209,14 +226,27 @@ for agent in turbine_agents:
 #     plt.title(title)
 
 wind_speeds_d = [8]
-num_iterations_d = 10000
+num_iterations_d = 10
 wind_speed_profile_d = {}
 for i, wind_speed in enumerate(wind_speeds_d):
     wind_speed_profile_d[i*num_iterations_d] = wind_speed
 wind_speed_profile_d[len(wind_speeds_d)*num_iterations_d] = np.nan
 wind_speed_profile_d = {len(wind_speeds_d)*num_iterations_d: np.nan}
-[powers_d, turbine_yaw_angles_d, turbine_error_yaw_angles_d, turbine_values_d] = \
-    tr.run_farm(fi, turbine_agents, server, wind_speed_profile_d, calamities=calamities, \
+
+num_iterations_d = 1000
+
+wind_dirs_d = [270, 265, 265, 265, 265, 265, 265]
+wind_speeds_d = [8]*len(wind_dirs_d)
+
+
+# uncomment for stepwise constant profiles
+wind_speed_profile_d = tr.create_constant_wind_profile(wind_speeds_d, num_iterations_d)
+wind_dir_profile_d = tr.create_constant_wind_profile(wind_dirs_d, num_iterations_d)
+
+action_selection = "boltzmann"
+
+[powers_d, turbine_yaw_angles_d, turbine_error_yaw_angles_d, turbine_values_d, rewards_d] = \
+    tr.run_farm(fi, turbine_agents, server, wind_speed_profile_d, wind_direction_profile=wind_dir_profile_d, calamities=calamities, \
         action_selection=action_selection, reward_signal=reward_signal)
 
 #np.save('rl_training_d.npy', powers_d)
