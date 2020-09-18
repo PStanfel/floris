@@ -613,6 +613,7 @@ class FlowField:
 
 
     def propagate_wind_directions(self, old_turbine_wind_direction, new_wind_direction, sim_time, first_x=None):
+        #print("entering propagate_wind_directions")
         # define the center of rotation with reference to 270 deg
         center_of_rotation = Vec3(0, 0, 0)
         # Rotate the turbines such that they are now in the frame of reference
@@ -655,6 +656,7 @@ class FlowField:
                 # if not any([delay == wind_dir[1] for wind_dir in temp_turbine.future_wind_dirs]):
                 #     temp_turbine.future_wind_dirs.append(future_wind_dir)
 
+        print("setting self.wind_direction to", new_wind_direction)
         self.wind_direction = new_wind_direction
 
 
@@ -722,6 +724,7 @@ class FlowField:
                 track of the number of upstream wakes a turbine is
                 experiencing. Defaults to *False*.
         """
+        #print("calling flow_field's calculate_wake")
         if points is not None:
             # add points to flow field grid points
             self._compute_initialized_domain(points=points)
@@ -771,12 +774,14 @@ class FlowField:
         ry = np.zeros(len(self.turbine_map.coords))
         for i, cord in enumerate(self.turbine_map.coords):
             rx[i], ry[i] = cord.x1prime, cord.x2prime
-
+        #if not look_ahead:
+            #print("Wind direction at computation step is", self.wind_map.turbine_wind_direction)
         # this loop only needs to be run in the visualization routine if a wind change happened that has not been resolved
         if (not self.wind_change_resolved and visualize) or not visualize:
             index = 0
             for coord, turbine in sorted_map:
                 if sim_time is not None and not look_ahead and not visualize:
+                    #print("here in ths u_wake update")
                     #print(turbine.number)
                     #print(turbine.send_wake)
                     (u_wake, turbine.send_wake) = turbine.wind_field_buffer.get_u_wake(np.shape(self.u), turbine.send_wake, sim_time)
@@ -808,7 +813,7 @@ class FlowField:
                     yoffset = center_of_rotation.x2 - initial_rotated_y
                     x_grid_offset = xoffset * cosd(wd) - yoffset * sind(wd) - xoffset
                     rotated_x = initial_rotated_x - x_grid_offset
-
+                #if look_ahead: print("look_ahead")
                 # update the turbine based on the velocity at its hub
                 turbine.update_velocities(
                     u_wake, coord, self, rotated_x, rotated_y, rotated_z

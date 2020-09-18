@@ -77,7 +77,7 @@ class Simulator():
         Run a simulation with a given wind profile.
 
         Args:
-            wind_profiels: Simulation wind profiles, The expected format is [wind_speed_profile, wind_direction_profile]. A valid profile is a dictionary with the key being the iteration the change occurs at and the value being the value that should be changed to.
+            wind_profiles: Simulation wind profiles, The expected format is [wind_speed_profile, wind_direction_profile]. A valid profile is a dictionary with the key being the iteration the change occurs at and the value being the value that should be changed to.
 
             learn: A boolean specifiying whether, if possible, the agents should continue to learn during the course of the simulation. NOTE: not currently implemented.
         """
