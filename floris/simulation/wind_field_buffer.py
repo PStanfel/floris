@@ -152,8 +152,16 @@ class WindFieldBuffer():
         if self._current_wind_dir is None and not overwrite:
             self._current_wind_dir = old_wind_direction
             self._current_coord = coord
+            self._wind_dir_shift = 0
             #print("Current wind direction None, setting to", wind_direction)
         elif overwrite:
+            #print("OVERWRITE")
+            if self._current_wind_dir is not None:
+                self._wind_dir_shift = new_wind_direction - self._current_wind_dir
+                #print("wind direction overwritten, wind_dir shift is now", self._wind_dir_shift)
+            else:
+                self._wind_dir_shift = new_wind_direction - old_wind_direction
+
             self._current_wind_dir = new_wind_direction
             self._current_coord = coord
             #print("Overwrite is True, setting wind direction to", wind_direction)
@@ -178,7 +186,11 @@ class WindFieldBuffer():
 
         if len(self._future_wind_dirs) > 0 and self._future_wind_dirs[0][1] == sim_time:
             send_wake_temp = False#True
-            self._current_wind_dir = self._future_wind_dirs[0][0]
+            pop_wind_dir = self._future_wind_dirs[0][0]
+
+            if self._current_wind_dir is not None: self._wind_dir_shift = pop_wind_dir - self._current_wind_dir
+            self._current_wind_dir = pop_wind_dir
+
             #self._current_coord = self._future_wind_dirs[0][3]
             self._future_wind_dirs.pop(0)
         else:
@@ -189,6 +201,7 @@ class WindFieldBuffer():
             #coord_set = self._current_coord
         else:
             wind_direction_set = wind_direction
+            self._wind_dir_shift = 0
             #coord_set = coord
 
         # NOTE: temporarily removing coord
@@ -304,7 +317,6 @@ class WindFieldBuffer():
         #         self._current_wake_deficits[index] = (wake_deficit, None)
 
         if self._current_wake_deficits[index] is None:
-            print("Wake deficit initialized")
             self._current_wake_deficits[index] = wake_deficit
 
             #print(self.number, "initializes wake deficit.")
@@ -336,3 +348,9 @@ class WindFieldBuffer():
 
         # the below line does not include any checking to make sure that there are no earlier-time wake effects already in the buffer
         #self._future_wake_deficits[index].append((new_wake_deficit, sim_time))
+
+    @property
+    def wind_dir_shift(self):
+        wind_dir_shift = self._wind_dir_shift
+        self._wind_dir_shift = 0
+        return wind_dir_shift
