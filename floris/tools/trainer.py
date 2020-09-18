@@ -68,8 +68,8 @@ class Trainer():
             self.parameters["wind_directions"] = np.array([270])
         if "yaw_angles" not in self.parameters:
             print("Using default yaw angle resolution...")
-            high = 45
-            low = -10
+            high = 30
+            low = 0
             step = 0.3
             self.parameters["yaw_angles"] = np.arange(low, high, step)#np.linspace(low, high, 100)#high-low+1)
         if "neighborhood_dims" not in self.parameters:
@@ -113,13 +113,16 @@ class Trainer():
         max_yaw = self.parameters["yaw_angles"][-1]
         for i,wind_speed in enumerate(self.parameters["wind_speeds"]):
             for j,wind_direction in enumerate(self.parameters["wind_directions"]):
-                self.fi.reinitialize_flow_field(wind_speed=wind_speed, wind_direction=wind_direction)
+                print("Wind speed:", wind_speed)
+                print("Wind direction:", wind_direction)
+                self.fi.reinitialize_flow_field(wind_speed=wind_speed, wind_direction=wind_direction+270)
+                self.fi.calculate_wake()
                 # Instantiate the Optimization object
                 yaw_opt = YawOptimization(self.fi, minimum_yaw_angle=min_yaw, maximum_yaw_angle=max_yaw)
 
                 # Perform optimization
                 yaw_angles = yaw_opt.optimize(verbose=False)
-
+                print("yaw_angles:", yaw_angles)
                 self._fill_tables(tables, yaw_angles, i, j)                
 
         luts = []
