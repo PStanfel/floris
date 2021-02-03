@@ -23,7 +23,7 @@ import floris.tools as wfct
 # **************************************** Parameters **************************************** #
 
 # whether or not a visualization should be generated
-visualize = True
+visualize = False
 
 # whether or not the visualization animation should be saved as an mp4
 save = False
@@ -84,32 +84,12 @@ for sim_time in range(total_time):
     iterations.append(sim_time)
     if sim_time % 100 == 0:
         print("Iteration:", sim_time)
-    # if sim_time in wind_speed_profile_high_ti:
-    #     fi.reinitialize_flow_field(wind_speed=wind_speed_profile_high_ti[sim_time], sim_time=sim_time)
-    # if sim_time == 1:
-    #     fi.floris.farm.flow_field.mean_wind_speed = 10
-    #     fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
-    #     if visualize:
-    #         fi.vis_flow_field.mean_wind_speed = 10
-    # if sim_time == 15:
-    #     fi.reinitialize_flow_field(wind_speed=15, sim_time=sim_time)
-    #     fi.floris.farm.flow_field.mean_wind_speed = 15
-    #     if visualize:
-    #         fi.vis_flow_field.mean_wind_speed = 15
-    # if sim_time == 20:
-    #     fi.reinitialize_flow_field(wind_speed=8, sim_time=sim_time)
-    # if sim_time == 11:
-    #     fi.reinitialize_flow_field(wind_speed=7, sim_time=sim_time)
-    if sim_time == 10:
-        fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
-    # if sim_time == 2:
-    #     fi.reinitialize_flow_field(wind_speed=7, sim_time=sim_time)
-    # if sim_time == 10:
-    #     yaw_angles = [45, 45, 0]
 
-    #     fi.reinitialize_flow_field(wind_speed=8, sim_time=sim_time)
-    #     if visualize:
-    #         fi.vis_flow_field.mean_wind_speed = 8
+    if sim_time == 1:
+        fi.floris.farm.flow_field.mean_wind_speed = 10
+        fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
+        if visualize:
+            fi.vis_flow_field.mean_wind_speed = 10
 
     # calculate dynamic wake computationally
     fi.calculate_wake(sim_time=sim_time, yaw_angles=yaw_angles)
