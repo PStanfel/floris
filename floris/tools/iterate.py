@@ -358,6 +358,8 @@ def iterate_floris_delay(fi, turbine_agents, server, sim_time=0, verbose=False,
     #         agent.state_change = False
     #         server.unlock_all()
 
+    fi.steady_yaw_angles=yaw_angles
+
     # Run FLORIS with the new yaw angle settings
     yaw_angles = fi.calculate_wake(yaw_angles=yaw_angles, sim_time=sim_time)
     # NOTE: agents don't register this change in yaw angles until the next time agent.observe_state is called
