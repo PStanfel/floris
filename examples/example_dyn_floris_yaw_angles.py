@@ -52,10 +52,17 @@ yaw_angles = [0 for turbine in fi.floris.farm.turbines]
 
 for sim_time in range(total_time):
 
+    if sim_time % 100 == 0:
+        print("Iteration:", sim_time)
+
     if sim_time in angle_changes:
         yaw_angles = angle_changes[sim_time]
         #fi.reinitialize_flow_field(wind_speed=10, sim_time=sim_time)
 
+    # BUG: due to considerations with how the quasi-dynamic wind direction 
+    # was implemented, the value steady_yaw_angles must be set here.
+    # I don't think this is preferable.
+    fi.steady_yaw_angles=yaw_angles
     fi.calculate_wake(sim_time=sim_time, yaw_angles=yaw_angles)
 
     powers.append(fi.get_farm_power()/1e6)
