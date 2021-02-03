@@ -69,8 +69,8 @@ if visualize:
 
 for sim_time in range(total_time):
     iterations.append(sim_time)
-    #if sim_time % 100 == 0:
-    print("Iteration:", sim_time)
+    if sim_time % 100 == 0:
+        print("Iteration:", sim_time)
 
     if sim_time == 1:
         fi.reinitialize_flow_field(wind_direction=275, sim_time=sim_time)
