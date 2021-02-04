@@ -80,32 +80,35 @@ def iterate_floris_steady(fi, turbine_agents, server, action_selection="boltzman
         fi: A FlorisUtilities object.
         turbine_agents: A list of TurbineAgents.
         server: A Server object that enables inter-turbine communication.
-        action_selection: A string or list of strings specifiying which action selection method should be used. If a list,
-        there must be one entry per turbine.
-        Current options for each turbine are:
-            - boltzmann: Boltzmann action selection
-            - epsilon: Epsilon-greedy action selection
-            - gradient: First-order gradient approximation
-            - hold: The turbine does not move
-        reward_signal: A string specifying what kind of reward signal can be used. For a 
-        variable reward signal, reward will be capped to avoid overflow errors. Current options
-        are:
-            - constant: -1 if value decreased significantly, +1 if value increased significantly, 
-            0 if value does not change significantly. Essentially implements reward clipping.
-            - variable: Reward returned from the environment is scaled and used to directly 
-            update the Bellman equation.
-        sim_time: Current simulation time. If this value is an integer, the wake-delay version of FLORIS will be used. If not,
-        FLORIS will behave as a normal steady-state simulator.
-        coord: String specifying how coordination should be accomplished. If None, no
-        coordination will be used, and execution will be simultaneous. Current options are:
-            - up_first: Optimize from upstream to downstream
-            - down_first: Optimize from downstream to upstream
-            - None: No coordination.
-        opt_window: Number of simulation iterations that each turbine or group of turbines is
-        given to optimize, if coord is not None.
+        action_selection: A string or list of strings specifiying which 
+            action selection method should be used. If a list, there must 
+            be one entry per turbine. Current options for each turbine are:
+                - boltzmann: Boltzmann action selection
+                - epsilon: Epsilon-greedy action selection
+                - gradient: First-order gradient approximation
+                - hold: The turbine does not move
+        reward_signal (string): Specifies what kind of reward signal can be 
+            used. For a variable reward signal, reward will be capped to avoid 
+            overflow errors. Current options are:
+                - constant: -1 if value decreased significantly, +1 if value 
+                    increased significantly, 0 if value does not change 
+                    significantly. Essentially implements reward clipping.
+                - variable: Reward returned from the environment is scaled and 
+                    used to directly update the Bellman equation.
+        sim_time (int): Current simulation time. If this value is an integer, 
+            the wake-delay version of FLORIS will be used. If not, FLORIS will 
+            behave as a normal steady-state simulator.
+        coord (string): String specifying how coordination should be accomplished. 
+            If None, no coordination will be used, and execution will be 
+            simultaneous. Current options are:
+                - up_first: Optimize from upstream to downstream
+                - down_first: Optimize from downstream to upstream
+                - None: No coordination.
+        opt_window (int): Number of simulation iterations that each turbine or 
+            group of turbines is given to optimize, if coord is not None.
     """
     yaw_angles = [None for agent in turbine_agents]
-    #yaw_angles = []
+
     rewards = []
 
     # determine which agents are ready to move based on the coordination scheme and the coordination_check method
@@ -122,7 +125,7 @@ def iterate_floris_steady(fi, turbine_agents, server, action_selection="boltzman
         if agent in ready_agents:
             # Determine current turbine state. NOTE: this overwrites the previous state and state_indices values.
             agent.observe_state()
-            print(agent.alias, "current state is", agent.state)
+
             # iterate through action selections if it is a list
             if isinstance(action_selection, list):
                 turb_action_selection = action_selection[i]
@@ -135,37 +138,15 @@ def iterate_floris_steady(fi, turbine_agents, server, action_selection="boltzman
                 yaw_angle = 0
             else:
                 yaw_angle = agent.take_action(action_selection=turb_action_selection, server=server)[0]
-                print(agent.alias, "takes action", agent.action, "to move to", yaw_angle)
+
             # Update, but don't run, the FLORIS model with the new yaw angle. All turbines must update yaw angle 
             # before FLORIS runs.
-            #yaw_angles.append(yaw_angle)
             yaw_angles[i] = yaw_angle
 
-            """ for j in range(len(turbine_agents)):
-                if j == i:
-                    yaw_angles[j] = yaw_angle
-                else:
-                    yaw_angles[j] = turbine_agents[j].control_action_present """
     fi.steady_yaw_angles = yaw_angles
+
     # Run FLORIS with the new yaw angle settings
     yaw_angles = fi.calculate_wake(yaw_angles=yaw_angles)
-
-    # agent.push_data_to_server(server)
-
-    # # The value function must be reset before update_Q so that gradient-based algorithms can have access
-    # # to the value function delta
-    # agent.reset_value()
-
-    # # Calculate "future" value function value
-    # agent.calculate_total_value_function(server, time=1)
-
-    # # turbines with more neighbors have to meet a higher threshold
-    # threshold = 5 * (len(agent.neighbors) + 1)
-
-    # # Update Q-table
-    # reward = agent.update_Q(threshold, reward_signal=reward_signal, scaling_factor=1e3)    
-
-    # rewards.append(reward)
 
     # update the server value function values
     for agent in turbine_agents:
@@ -196,7 +177,7 @@ def iterate_floris_steady(fi, turbine_agents, server, action_selection="boltzman
             if coord is not None: 
                 agent.inc_opt_counter(opt_window=opt_window)
             # NOTE: called above, this is most likely not needed here
-            #agent.reset_value()
+
         else:
             rewards.append(0)
     
@@ -215,36 +196,52 @@ def iterate_floris_delay(fi, turbine_agents, server, sim_time=0, verbose=False,
                          action_selection="boltzmann", reward_signal="constant", 
                          watch_state=["wind_speed", "wind_direction"], coord=None, opt_window=100, last_iter=None):
     """
-    Method that is intended to be called repeatedly to simulate each time step of a quasi-dynamic FLORIS simulation.
+    Method that is intended to be called repeatedly to simulate 
+    each time step of a quasi-dynamic FLORIS simulation.
 
     Args:
         fi: A FlorisUtilities object.
         turbine_agents: A list of TurbineAgents.
-        server: A Server object that enables inter-turbine communication.
-        sim_time: Integer specifying simulation time. This is used in conjunction with modifications 
-        to FLORIS to simulate a wake delay, so it must be iterated upwards on each call of iterate_floris_delay.
-        verbose: Prints out extra information when True (boolean).
-        action_selection: A string specifiying which action selection method should be used. 
-        Current options are:
-            - boltzmann: Boltzmann action selection
-            - epsilon: Epsilon-greedy action selection
-        reward_signal: A string specifying what kind of reward signal can be used. For a 
-        variable reward signal, reward will be capped to avoid overflow errors. Current options
-        are:
-            - constant: -1 if value decreased significantly, +1 if value increased significantly, 
-            0 if value does not change significantly. Essentially implements reward clipping.
-            - variable: Reward returned from the environment is scaled and used to directly 
-            update the Bellman equation.
-        target_state: Integer specifying which index of the discrete state space should be "looked at" 
-        to watch for changes. It is currently used to activate a ramp up or down to a given yaw angle
-        if a wind speed change is detected.
-        coord: What kind of coordination to use (string). Current options are:
-            - up_first: begins coordination at most upstream turbine
-            - down_first: begins coordination at most downstream turbine
-            - None: no coordination
-        opt_window: If coordinated, the amount of time each turbine should be given to optimize (int).
+        server: A Server object that enables inter-turbine 
+            communication.
+        sim_time (int): Integer specifying simulation time. 
+            This is used in conjunction with modifications 
+            to FLORIS to simulate a wake delay, so it 
+            must be iterated upwards on each call of 
+            iterate_floris_delay.
+        verbose (bool): Prints out extra information when 
+            True.
+        action_selection (string): Specifies which action 
+            selection method should be used. 
+            Current options are:
+                - boltzmann: Boltzmann action selection
+                - epsilon: Epsilon-greedy action selection
+        reward_signal: A string specifying what kind of 
+            reward signal can be used. For a variable reward 
+            signal, reward will be capped to avoid overflow 
+            errors. Current options are:
+                - constant: -1 if value decreased significantly, 
+                    +1 if value increased significantly, 0 if 
+                    value does not change significantly. Essentially 
+                    implements reward clipping.
+                - variable: Reward returned from the environment is 
+                    scaled and used to directly update the Bellman 
+                    equation.
+        target_state (int): Specifies which index of the 
+            discrete state space should be "looked at" to watch 
+            for changes. It is currently used to activate a ramp 
+            up or down to a given yaw angle if a wind speed 
+            change is detected.
+        coord (string): What kind of coordination to use. Current 
+            options are:
+                - up_first: begins coordination at most upstream 
+                    turbine
+                - down_first: begins coordination at most 
+                    downstream turbine
+                - None: no coordination
+        opt_window (int): If coordinated, the amount of time each 
+            turbine should be given to optimize.
     """
-    
     locking_turbine = []
     yaw_angles = [None for turbine in fi.floris.farm.turbines]
     values = [None for turbine in fi.floris.farm.turbines]
@@ -254,109 +251,66 @@ def iterate_floris_delay(fi, turbine_agents, server, sim_time=0, verbose=False,
     else:
         ready_agents = turbine_agents
 
-    #print("Turbine 2 power:", fi.floris.farm.turbines[2].power)
-
     state_changes = [False for turbine in fi.floris.farm.turbines]
-    #print(sim_time)
-    if not False:#sim_time == 0:
-        active_agents = [agent for agent in ready_agents if not agent.shut_down]
-        indices = list(range(len(active_agents)))
-        random.shuffle(indices)
-        #print("Five and a half:", fi.floris.farm.wind_map.turbine_wind_speed)
-        # BUG: this causes the quasi-dynamic phase to not work properly
-        # for i in indices:
-        #     active_agents[i].observe_state(target_state=target_state, peek=True)
-            #, fi=fi)
-        #print("Five a", fi.floris.farm.wind_map.turbine_wind_speed)
-        #     if active_agents[i].state_change or active_agents[i].target_state is not None:
-        #         if active_agents[i].verbose: print(active_agents[i].alias, "ramping...")
-        #         active_agents[i].observe_state(target_state=target_state, peek=False)
-        #         yaw_angles[i] = active_agents[i].ramp(state_name="yaw_angle")
 
-        #         # ramping still causes a wake delay, so turbines must be locked
-        #         # if there is no ramping, delay_map should be empty
-        #         #print(active_agents[i].alias, "calls first server.lock()")
-        #         server.lock(active_agents[i])
-        #print("Six:", fi.floris.farm.wind_map.turbine_wind_speed)   
+    active_agents = [agent for agent in ready_agents if not agent.shut_down]
+    indices = list(range(len(active_agents)))
+    random.shuffle(indices)
 
-        for i,agent in enumerate(turbine_agents):
-            agent.observe_state(peek=True)
-        
-            yaw_set = agent.ramp(state_name="yaw_angle")
-            if yaw_set is not None:
-                yaw_angles[i] = yaw_set
+    # BUG: this causes the quasi-dynamic phase to not work properly
+    # for i in indices:
+    #     active_agents[i].observe_state(target_state=target_state, peek=True)
+        #, fi=fi)
 
-        for i in indices:
-            agent = active_agents[i]
+    #     if active_agents[i].state_change or active_agents[i].target_state is not None:
+    #         if active_agents[i].verbose: print(active_agents[i].alias, "ramping...")
+    #         active_agents[i].observe_state(target_state=target_state, peek=False)
+    #         yaw_angles[i] = active_agents[i].ramp(state_name="yaw_angle")
 
-            #agent.handle_filters()
+    #         # ramping still causes a wake delay, so turbines must be locked
+    #         # if there is no ramping, delay_map should be empty
+    #         #print(active_agents[i].alias, "calls first server.lock()")
+    #         server.lock(active_agents[i]) 
 
-            #agent.observe_state(target_state=target_state, peek=True)
-            if server.check_neighbors(agent):
-                #print(agent.alias, i)
-                #print(agent.alias + " is unlocked.")
-                agent.observe_state(watch_state=watch_state)
-                print(agent.alias, "current state is", agent.state)
-                if verbose: print(indices)
-                #print(agent.alias, "has no locked neighbors and enters action selection loop.")
-                # Determine current turbine state. NOTE: this overwrites the previous state and state_indices values.
-                '''state_change = state_changes[i]'''
-                # Determine which yaw angle to set the turbine to.
-                # Output of agent.take_action() depends on how modify_behavior is defined
-
-                agent.calculate_total_value_function(server, time=0)
-
-                # uses data member set by TurbineAgent.observe_state() to adjust yaw angles for a wind speed change
-                yaw_angle = agent.take_action(action_selection=action_selection)[0]
-                print(agent.alias, "takes action", agent.action, "to move to", yaw_angle)
-                if agent.verbose:
-                    print(agent.alias, "chooses yaw angle", yaw_angle)
-                """ if not agent.state_change:
-                    yaw_angle = agent.take_action(action_selection=action_selection)
-                else:
-                    yaw_angle = agent.utilize_q_table()
-                    agent.state_change = False """
-
-                # Update, but don't run, the FLORIS model with the new yaw angle. All turbines must update yaw angle before FLORIS runs.
-                yaw_angles[i] = yaw_angle
-                #print(yaw_angles)
-                #agent.push_data_to_server(server)
-
-                agent.completed_propagation = False
-                agent.completed_action = False
-                agent.start_power_state_filters()
-                #print(active_agents[i].alias, "calls second server.lock()")
-                server.lock(agent)
-                
-                locking_turbine.append(i)
-
-                #agent.observe_state()
-                break
-        #print("Seven:", fi.floris.farm.wind_map.turbine_wind_speed)
-        # for agent in turbine_agents:            
-        #     if agent.delay == 0 and agent.completed_action == False:
-        #         #BUG
-        #         agent.filter_delay = agent.filter_window
-        #         agent.completed_action = True
-            # if agent.filter_delay == 0 and agent.completed_action == False:
-            #     if agent.verbose:
-            #         print(agent.alias, "reaches 0 filter delay")
-            #         print(agent.alias, "boolean value is", agent.completed_action)
-            #     agent.completed_action = True
+    for i,agent in enumerate(turbine_agents):
+        agent.observe_state(peek=True)
     
-    # use commented out section to immediately set turbine to correct yaw angle
-    # for i,agent in enumerate(turbine_agents):
-    #     if agent.state_change:
-    #         """ yaw_angles[i] = agent.utilize_q_table()
-    #         agent.state_change = False """
-    #         # set up agent to control itself to the value from the Q-table. The controllable state
-    #         # (yaw angle) is index 1 of the discrete state space in this case.
+        yaw_set = agent.ramp(state_name="yaw_angle")
+        if yaw_set is not None:
+            yaw_angles[i] = yaw_set
 
-    #         # TODO: allow control_state and axis to not have to be hardcoded
-    #         # should be axis=[0,1] and control_state=2 for a three state simulation
-    #         agent.control_to_value(target=agent.utilize_q_table(axis=[0]), control_state=1)
-    #         agent.state_change = False
-    #         server.unlock_all()
+    for i in indices:
+        agent = active_agents[i]
+
+        if server.check_neighbors(agent):
+
+            agent.observe_state(watch_state=watch_state)
+
+            if verbose: print(indices)
+
+            agent.calculate_total_value_function(server, time=0)
+
+            # uses data member set by TurbineAgent.observe_state() to adjust yaw angles for a wind speed change
+            yaw_angle = agent.take_action(action_selection=action_selection)[0]
+
+            if agent.verbose:
+                print(agent.alias, "chooses yaw angle", yaw_angle)
+
+
+            # Update, but don't run, the FLORIS model with the new yaw angle. All turbines must update yaw angle before FLORIS runs.
+            yaw_angles[i] = yaw_angle
+
+            # set flags properly
+            agent.completed_propagation = False
+            agent.completed_action = False
+            agent.start_power_state_filters()
+
+            # lock downstream turbines
+            server.lock(agent)
+            
+            locking_turbine.append(i)
+
+            break
 
     fi.steady_yaw_angles=yaw_angles
 
@@ -365,11 +319,7 @@ def iterate_floris_delay(fi, turbine_agents, server, sim_time=0, verbose=False,
     # NOTE: agents don't register this change in yaw angles until the next time agent.observe_state is called
     # I don't think this is a significant issue, however, at least at this point, but it does explain some inconsistencies
     # between the error yaw angle plots and the actual yaw angle plots
-    #print("Eight:", fi.floris.farm.wind_map.turbine_wind_speed)
-    #print([turbine.yaw_angle for turbine in fi.floris.farm.turbines])
-    #if sim_time == 0 or sim_time == 1:
-        #print("Yaw angles inside iterate: ")
-        #print(yaw_angles)
+
     # update the server value function values
     for i,agent in enumerate(turbine_agents):
         agent.push_data_to_server(server)
@@ -380,18 +330,11 @@ def iterate_floris_delay(fi, turbine_agents, server, sim_time=0, verbose=False,
         if agent.wake_delay > 0:
             agent.wake_delay -= 1
             if agent.wake_delay == 0: reached_zero = True
-            #print(agent.alias, " delay is ", agent.delay)
-            # if agent.delay == 0 and agent.completed_action == False:
-            #     agent.completed_action = True
-            #     if agent.verbose: print(agent.alias, "reaches 0 delay")
 
         if agent.state_delay > 0:
             agent.state_delay -= 1
         if agent.power_delay > 0:
             agent.power_delay -= 1
-
-        # if agent.verbose:
-        #     print(agent.alias, "has wake_delay", agent.wake_delay, ", state_delay", agent.state_delay, ", and power_delay", agent.power_delay)
 
         if agent.wake_delay == 0 and agent.completed_propagation == False:
             agent.completed_propagation = True
@@ -407,9 +350,7 @@ def iterate_floris_delay(fi, turbine_agents, server, sim_time=0, verbose=False,
             agent.completed_action = True
             if agent.verbose:
                 print(agent.alias, "sets completed_action to True")
-        # elif agent.delay == 0 and agent.filter_delay != 0:
-        #     agent.filter_delay -= 1
-        #values[i] = agent.calculate_total_value_function(server)#, time=0)
+
         values[i] = 0
 
     if not sim_time == 0:
@@ -423,21 +364,12 @@ def iterate_floris_delay(fi, turbine_agents, server, sim_time=0, verbose=False,
 
                 # Calculate "future" value function value
                 agent.calculate_total_value_function(server, time=1)
-                
-                #print(agent.alias, "calculates total value to be", temp)
-                #print("Timestep:", sim_time)
 
                 # turbines with more neighbors have to meet a higher threshold
                 threshold = 5 * (len(agent.neighbors) + 1)
 
                 # Update Q-table
                 agent.update_Q(threshold, reward_signal=reward_signal, scaling_factor=1e3)   
-
-                #state_map = {"wind_speed": agent.state[0], "wind_direction": agent.state[1]}
-                #agent.utilize_q_table(state_name="yaw_angle", state_map=state_map, print_q_table=False)
-                #print("Total value rose by", temp) 
-
-                #agent.observe_state()
 
                 agent.completed_action = None
                 agent.completed_propagation = None
@@ -448,17 +380,10 @@ def iterate_floris_delay(fi, turbine_agents, server, sim_time=0, verbose=False,
                     agent.inc_opt_counter(opt_window=opt_window)
 
                 if verbose: print(agent.alias, "completes Q update")
-        #print("Nine:", fi.floris.farm.wind_map.turbine_wind_speed)
 
 
         rewards = [agent.total_value_future - agent.total_value_present for agent in turbine_agents]
     
     rewards = [agent.reward for agent in turbine_agents]
-    
-    # if last_iter:
-    #     for agent in turbine_agents:
-    #         print(agent.alias, np.any(agent.Q_obj.table == 0))
-    #         state_map = {"wind_speed": agent.state[0], "wind_direction": agent.state[1]}
-    #         agent.utilize_q_table(state_name="yaw_angle", state_map=state_map, print_q_table=True)
 
     return [locking_turbine, yaw_angles, [agent.state[1] for agent in turbine_agents], values, rewards]
