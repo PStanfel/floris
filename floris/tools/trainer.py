@@ -44,7 +44,7 @@ class Trainer():
 
         training_method: An instantiated TrainingMethod object.
 
-        dyn_train: A boolean indicating if the Trainer should use the quasi-dynamic environment. If True, the quasi-dynamic environment will be used. If False, the steady-state environment will be used.
+        dyn_train (bool): Indicates if the Trainer should use the quasi-dynamic environment. If True, the quasi-dynamic environment will be used. If False, the steady-state environment will be used.
     Returns:
         Trainer: An instantiated Trainer object.
     """
@@ -71,7 +71,7 @@ class Trainer():
             high = 40
             low = 0
             step = 1
-            self.parameters["yaw_angles"] = np.arange(low, high, step)#np.linspace(low, high, 100)#high-low+1)
+            self.parameters["yaw_angles"] = np.arange(low, high, step)
         if "neighborhood_dims" not in self.parameters:
             print("Using default neighborhood dimensions...")
             D = self.fi.floris.farm.turbines[0].rotor_diameter
@@ -97,6 +97,9 @@ class Trainer():
             return self._train_dynamic(tau, epsilon, discount, value_function, file_prefix)
 
     def _train_static(self):
+        """
+        Trains a static LUT.
+        """
         discrete_states = [self.parameters["wind_speeds"], self.parameters["wind_directions"], \
             self.parameters["yaw_angles"]]
 
@@ -131,12 +134,42 @@ class Trainer():
         return luts
 
     def _fill_tables(self, tables, yaw_angles, i, j):
+        """
+        Helper function to insert a setpoint into the LUT.
+
+        Args:
+            tables: Array of np arrays. Each entry in tables is the 
+                LUT for a turbine in the wind farm.
+            
+            yaw_angles: Array of yaw angle setpoints for each turbine
+                in the wind farm.
+
+            i (int): horizontal index into the state space
+
+            j (int): vertical index into the state space
+        """
         for yaw_angle,table in zip(yaw_angles, tables):
             table[i][j] = yaw_angle
 
         return 
 
     def _train_dynamic(self, tau, epsilon, discount, value_function=None, file_prefix=None):
+        """
+        Trains a dynamic LUT.
+
+        Args:
+            tau (double): Boltzmann tau parameter
+
+            epsilon (double): Epsilon-greedy epsilon parameter.
+
+            discount (double): Q-learning discount factor
+
+            value_function: Function handle describing what value 
+                function to use for Q-learning.
+
+            file_prefix (string): File prefix to save data to, if
+                needed.
+        """
         # TODO: include value_function as part of training_method, not _train_dynamic
         discrete_states = [self.parameters["wind_speeds"], \
             self.parameters["wind_directions"], \
@@ -174,6 +207,8 @@ class Trainer():
 
                 sim_context = fa.SimContext([wind_speed_state, wind_direction_state, yaw_angle_state])
 
+                # NOTE: Because sim_context is included as in input, observe_turbine_state and
+                # modify_behavior don't need to be specified, but they are here to avoid bugs.
                 agent = TurbineAgent(aliases[index], "no one of consequence", 
                                     farm_turbines=farm_turbines, 
                                     observe_turbine_state=sim_context.observe_state,#fa.observe_turbine_state_sp_dir_yaw, 
@@ -236,8 +271,7 @@ class Trainer():
             np.save(yaw_name, turbine_yaw_angles)
             np.save(power_name, powers)
             np.save(iteration_name, iterations)
-        #plt.plot(powers)
-        #plt.show()
+
         luts = []
         for alias,agent in zip(aliases,turbine_agents):
             lut = LUT(self.tm, discrete_states, agent=agent, server=server)
@@ -246,12 +280,38 @@ class Trainer():
         return luts
 
     def _set_training_method(self, training_method):
+        """
+        NOTE: this method is unused.
+        """
         training_methods = ["static"]
 
         if training_method not in training_methods:
                     raise ValueError("Invalid training method selected")   
 
 class LUT():
+    """
+    This class is intended to encapsulate a LUT regardless of if it is
+    static or dynamic.
+
+    Args:
+        training_method: TrainingMethod object.
+
+        discrete_states: Array of arrays. Each element of the array
+            contains the discrete state space for that state.
+
+        table (arr): If the LUT is static, this must be specified, as
+            it will be indexed into to determine setpoints.
+
+        alias (string): Name of the LUT. If the LUT is static, this must
+            be passed explicitly. If it is dynamic, the alias entry in
+            the agent parameter must be used.
+
+        agent: TurbineAgent object. This entry will be used to determine
+            the setpoint if the LUT is dynamic.
+
+        server: Server object. This entry will be used to achieve 
+            inter-turbine communication if the LUT is dynamic.
+    """
     def __init__(self, training_method, discrete_states, table=None, alias=None, agent=None, server=None):
         self._tm = training_method
         self.discrete_states = discrete_states
@@ -273,11 +333,46 @@ class LUT():
         algorithm that created it. 
 
         Args:
-            - state: Tuple. Which state, if any, to read for. Should be of the form (wind_speed, wind_dir).
-            - all_states: Boolean. If True, read() will return a table that has a yaw angle for every yaw 
+            state (tup): Which state, if any, to read for. Should be of the form (wind_speed, wind_dir).
+
+            all_states (bool): If True, read() will return a table that has a yaw angle for every yaw 
                 angle or direction in the discrete states, and state will be ignored. If False, will only 
                 read the table entry for the given state.
-            - print_q_table: Boolean, determines whether or not the Q-table will be displayed.
+
+            print_q_table (bool): determines whether or not the Q-table will be displayed.
+
+            blur (bool): Specifies whether not table should be blurred prior to reading it.
+
+            sigma (double): If blurred, which sigma parameter to use.
+
+            method (string): If func is None, this parameter 
+                specifies which of a set of predetermined 
+                methods to use. Current options are:
+                - smallest_diff: index of smallest difference
+                    between increase and decrease actions
+                - first_swap: index where decrease action first
+                    surpasses increase action expected value, 
+                    beginning at the lowest yaw angle.
+                - lowest_total: index of the smalles combined
+                    expected values of the increase and decrease
+                    actions.
+                - highest_stay: index corresponding to the 
+                    highest expected value of the stay action
+                    (assumes the stay action exists).
+                - highest_stay_relative: index of the largest
+                    difference between the stay action and the 
+                    sum of the increase and decrease actions
+                    (assumes the stay action exists)
+                - one_past_highest_inc: one index past the index
+                    of the highest expected value of the increase
+                    action.
+                - one_before_highest_dec: one index before the 
+                    index of the highest expected value of the
+                    decrease action.
+
+            func: Custom user-defined function that, if specified,
+                can run a different utilization algorithm than 
+                is already defined using the method parameter.
         """
         if not all_states and state is None:
             raise ValueError("State must be specified if all_states is False.")
@@ -318,8 +413,6 @@ class LUT():
                 state_map = {"wind_speed": state[0], "wind_direction": state[1]}
 
                 return self.agent.utilize_q_table(state_name="yaw_angle", state_map=state_map, print_q_table=print_q_table, blur=blur, sigma=sigma, method=method, func=func)
-    
-    #def _read_q_table(self, wind_speed, wind_direction):
 
 
 class TrainingMethod():
@@ -329,27 +422,34 @@ class TrainingMethod():
 
     Args:
         num_turbines: Int, number of turbines in the wind farm.
+
         static: Boolean, whether or not a static table should be created.
+
         coord: String specifying how coordination should be accomplished. If None, no
-        coordination will be used, and execution will be simultaneous. Current options are:
-            - up_first: Optimize from upstream to downstream
-            - down_first: Optimize from downstream to upstream
+            coordination will be used, and execution will be simultaneous. Current options are:
+                - up_first: Optimize from upstream to downstream
+                - down_first: Optimize from downstream to upstream
+
         action_selection: A string specifiying which action selection method should be used. 
-        Current options are:
-            - boltzmann: Boltzmann action selection
-            - epsilon: Epsilon-greedy action selection
-            - gradient: First-order backward-differencing gradient approximation.
+            Current options are:
+                - boltzmann: Boltzmann action selection
+                - epsilon: Epsilon-greedy action selection
+                - gradient: First-order backward-differencing gradient approximation.
+
         reward_signal: A string specifying what kind of reward signal can be used. For a 
         variable reward signal, reward will be capped to avoid overflow errors. Current options
-        are:
-            - constant: -1 if value decreased significantly, +1 if value increased significantly, 
-            0 if value does not change significantly. Essentially implements reward clipping.
-            - variable: Reward returned from the environment is scaled and used to directly 
-            update the Bellman equation. 
+            are:
+                - constant: -1 if value decreased significantly, +1 if value increased significantly, 
+                    0 if value does not change significantly. Essentially implements reward clipping.
+                - variable: Reward returned from the environment is scaled and used to directly 
+                    update the Bellman equation. 
+
         opt_window: Number of simulation iterations that each turbine or group of turbines is
-        given to optimize. Ignored if coord is None or static is True.
+            given to optimize. Ignored if coord is None or static is True.
+
         iterations: An integer specifying the number of simulation iterations that the farm is trained 
-        for. If None and coord is not None, will be set to opt_window * num_turbines.
+            for. If None and coord is not None, will be set to opt_window * num_turbines.
+            
         name: String, training method name.
 
     """
