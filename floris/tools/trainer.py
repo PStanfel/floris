@@ -44,7 +44,8 @@ class Trainer():
 
         training_method: An instantiated TrainingMethod object.
 
-        dyn_train (bool): Indicates if the Trainer should use the quasi-dynamic environment. If True, the quasi-dynamic environment will be used. If False, the steady-state environment will be used.
+        dyn_train (bool): Indicates if the Trainer should use the quasi-dynamic environment. 
+            If True, the quasi-dynamic environment will be used. If False, the steady-state environment will be used.
     Returns:
         Trainer: An instantiated Trainer object.
     """
@@ -260,7 +261,7 @@ class Trainer():
         else:
             [powers, turbine_yaw_angles, turbine_error_yaw_angles, turbine_values, rewards] = \
             tr.run_farm(self.fi, turbine_agents, server, wind_speed_profile, mean_wind_speeds, wind_direction_profile=wind_direction_profile, action_selection=action_selection, reward_signal=reward_signal)
-        plt.plot(powers)
+        #plt.plot(powers)
         iterations = range(num_iterations)
 
         if file_prefix is not None:
@@ -449,7 +450,7 @@ class TrainingMethod():
 
         iterations: An integer specifying the number of simulation iterations that the farm is trained 
             for. If None and coord is not None, will be set to opt_window * num_turbines.
-            
+
         name: String, training method name.
 
     """
