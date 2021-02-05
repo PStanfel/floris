@@ -94,7 +94,7 @@ for i,lut_set in enumerate(lut_sets):
     print("NEW LUT SET")
     plt.figure()
 
-    # reset farm yaw angles to be all 0
+    # reset farm yaw angles
     fi.calculate_wake([turbine.yaw_angle - yaw_error for turbine in fi.floris.farm.turbines])
     fi.calculate_wake([0 for turbine in fi.floris.farm.turbines])
     simulator = Simulator(fi, lut_set)
@@ -127,6 +127,7 @@ for i,lut_set in enumerate(lut_sets):
 
     power_list.append(powers)
 
+# **************************************** Plots **************************************** #
 
 energy_list = [sum(power) for power in power_list]
 energy_list = np.array(energy_list)
