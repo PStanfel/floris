@@ -24,11 +24,6 @@ angle_changes = {250:[10,0,0], 500:[10,10,0], 750:[20,10,0], 1000:[20,20,0]}
 # the underlying classes
 fi = wfct.floris_interface.FlorisInterface("./example_input.json")
 
-# D = fi.floris.farm.turbines[0].rotor_diameter
-# print(D)
-# layout_x = [0, 7 * D]
-# layout_y = [0, 0]
-# fi.reinitialize_flow_field(layout_array=(layout_x, layout_y))
 
 # Calculate wake
 fi.calculate_wake()
@@ -40,13 +35,7 @@ powers = []
 true_powers = []
 total_time = 1200
 fi.floris.farm.flow_field.mean_wind_speed = 8
-# turb_0_yaw = 20
 
-# fi.reinitialize_flow_field(wind_speed=8)
-# fi.calculate_wake(yaw_angles=[turb_0_yaw,0])
-# true_power = fi.get_farm_power()/1e6
-
-# fi.calculate_wake()
 
 yaw_angles = [0 for turbine in fi.floris.farm.turbines]
 
