@@ -25,7 +25,8 @@ def _adjust_coordinates(position, phi):
 
     Args:
         position: Tuple of (x,y) coordinates of a turbine.
-        phi: Float, wind direction in radians
+
+        phi (double): wind direction in radians
     """
     adjusted_x = position[0] * math.cos(phi) + position[1] * math.sin(phi)
     adjusted_y = -position[0] * math.sin(phi) + position[1] * math.cos(phi)
@@ -83,7 +84,10 @@ class FlorisModel():
 
     Args:
         fi: FlorisUtilities object.
+
         turbine: Turbine object.
+
+        index (int): Index of corresponing turbine in TurbineMap.
 
     Returns:
         FlorisModel: An instantiated FlorisModel object.
@@ -99,48 +103,55 @@ class FlorisModel():
                           "wind_direction": self.wind_direction}
 
     def yaw_angle(self, fi=None):
+        """
+        Return turbine yaw angle.
 
+        Args:
+            fi: FlorisInterface object that can optionally be specified
+                to avoid deep copy issues.
+        """
         if fi is not None:
             self.fi = fi
             return
 
         yaw_angle = self.turbine.yaw_angle + self.wind_direction()
-        #print("Wind direction to add to yaw angle:", self.fi.floris.farm.wind_direction)
-        # if any(self.fi.wind_dir_change_turb):
-        #     print(self.fi.wind_dir_change_turb)
-        #     # self.fi.wind_dir_change is a list of booleans, so if any of them are true the wind direction needs to be shifted
-        #     yaw_angle -= self.fi.wind_dir_shift
-        #     print("Wind dir shift of", self.fi.wind_dir_shift, "subtracted.")
-            
         #     # NOTE: this only works for instantaneous farm wind direction changes
         #     for i,flag in enumerate(self.fi.wind_dir_change_turb):
         #         if flag:
         #             # change one True element to False
         #             self.fi.wind_dir_change_turb[i] = False
         #             break
-        #print("Absolute yaw angle:", yaw_angle)
         return yaw_angle
 
     def wind_speed(self, fi=None):
+        """
+        Return wind speed at turbine.
 
+        Args:
+            fi: FlorisInterface object that can optionally be specified
+                to avoid deep copy issues.
+        """
         if fi is not None:
             self.fi = fi
             return
 
         wind_speed = self.fi.floris.farm.turbines[self.index].wind_field_buffer.wind_speed
         #wind_speed = self.fi.floris.farm.turbines[self.index].average_velocity
-        #print("Inside wind_speed property, turbine_wind_speed is", self.fi.floris.farm.wind_map.turbine_wind_speed)
         if wind_speed is not None:
-            #print(self.index, "is returing wind speed as", wind_speed, "because wind_speed is not None")
             return wind_speed
         else:
-            #print(self.index, "is returning wind speed as", self.fi.floris.farm.wind_map.turbine_wind_speed[self.index], "because wind_speed is None")
             return self.fi.floris.farm.wind_map.turbine_wind_speed[self.index]
 
         
 
     def wind_direction(self, fi=None):
+        """
+        Return wind direction at turbine.
 
+        Args:
+            fi: FlorisInterface object that can optionally be specified
+                to avoid deep copy issues.
+        """
         if fi is not None:
             self.fi = fi
             return
@@ -239,9 +250,16 @@ class State():
         self.filter_count = 0
 
     def _accumulate(self, bin_num, filter_window):
-        #print("bin_num inside _accumulate for", self.name, "and", self.number, "is", bin_num)
+        """
+        Increase bin counting counters and return the mode if the limit has been reached.
+
+        Args:
+            bin_num (int): The bin number (index) of the state observation.
+
+            filter_window (int): Bin counting filter limit.
+
+        """
         if len(self.bin_counts) == filter_window:
-            #print("bin_counts is at capacity")
             try:
                 mode_bin_num = statistics.mode(self.bin_counts)
                 self.bin_counts.clear()
@@ -250,30 +268,9 @@ class State():
                 self.bin_counts.clear()
                 return None
         else:
-            #print("appending bin_num to list")
             self.bin_counts.append(bin_num)
-            #print("bin_counts size is now", len(self.bin_counts))
-            # if len(self.bin_counts) == filter_window:
-            #     print(self.name, "for turbine", self.number, "has bin value", self.discrete_values[statistics.mode(self.bin_counts)])
-        
+
             return None
-
-        # self.filter_count += 1
-
-        # if self.filter_count == self.filter_window:
-        #     try:
-        #         mode_bin_num = statistics.mode(self.bin_counts)
-        #     except:
-        #         mode_bin_num = None
-
-        #     self.bin_counts.clear()
-
-        #     self.filter_count = 0
-
-        #     return mode_bin_num
-        # else:
-        #     return None
-
         
 
     def get_state(self, target=None, round_to_bin=True, count_bins=False, method=None, filter_window=None):
@@ -281,9 +278,16 @@ class State():
         Returns the errored state or the closest discrete state value to the errored state.
 
         Args:
-            target: An optional value that specifies which value the closest state value should be returned for. If None, value will be returned for the current 
-            (errored) state value.
-            round_to_bin: Whether or not the errored state should be rounded to a discrete state bin(boolean).
+            target: An optional value that specifies which value the closest state value should be returned for. 
+                If None, value will be returned for the current (errored) state value.
+
+            round_to_bin (bool): Whether or not the errored state should be rounded to a discrete state bin.
+
+            count_bins (bool): Specifies if bin counting should be used or not.
+
+            method: Optional user specified function handle to obtain state value.
+
+            filter_window (int): If filtering is used, the window to use.
         """
         if not self.state_type == "discrete" and round_to_bin:
             # round_to_bin is only effective for discrete state spaces
@@ -355,7 +359,7 @@ class State():
 
         Args:
             target: An optional value that specifies which value the index should be returned
-            for. If None, index will be returned for the current (errored) state value.
+                for. If None, index will be returned for the current (errored) state value.
         """
         if not self.state_type == "discrete":
             # this method is only effective for discrete state spaces
@@ -371,10 +375,14 @@ class State():
 
     def set_state(self, agent, target_state=None):
         """
-        Returns a value that can be passed into FLORIS to be run. While trying to be agnostic to the type of control action, this method was built to handle yaw angle control. NOTE: this assumes that the state is discrete. 
+        Returns a value that can be passed into FLORIS to be run. 
+        While trying to be agnostic to the type of control action, this method was built to handle yaw angle control. 
+        NOTE: this assumes that the state is discrete. 
 
         Args:
             agent: TurbineAgent object that is returning a control action.
+
+            target_state (double): Value for turbine to move towards, if not ramping.
         """
         
         if not self.controlled:
@@ -402,9 +410,6 @@ class State():
         #state_value = agent.model.turbine.yaw_angle
         
         state_value = self.get_state()
-        print(agent.alias, "state_value:", state_value)
-
-        #print("SECOND state value:", state_value)
 
         if agent.target_state is None:
 
@@ -456,10 +461,9 @@ class State():
 
             return state_value_error
         else:
-            #print("target_state is not None for", agent.alias)
-            #agent.delay_map = {}
+
             diff = target_state - state_value
-            #print(agent.alias, "diff is", diff)
+
             yaw_rate = agent.model.turbine.yaw_rate
             if abs(diff) < yaw_rate:
                 state_value = target_state
@@ -469,13 +473,10 @@ class State():
                 agent.wake_delay = 0
                 agent.power_delay = 0
                 agent.state_delay = 0
-                #print("state_value in if branch is", state_value)
-                # NOTE: test
-                #turbine_agent.delay_map = {}
+
             else:
                 state_value += np.sign(diff) * agent.model.turbine.yaw_rate
-                #print(agent.alias, str(np.sign(diff) * agent.model.turbine.yaw_rate))
-                #print(agent.alias, str(state_value))
+
                 _set_delay_map(agent)
                 
 
@@ -486,16 +487,16 @@ class State():
                 state_value_error = state_value * (1 - self.error_value)
             elif self.error_type == "none":
                 state_value_error = state_value
-            print(agent.alias, "yaw angle:", state_value_error)
+
             return state_value_error
 
 class SimContext():
     """
+    Object intended to encapsulate all routines that an agent would need
+    to perform to interact with the simulation environment.
 
-    error_info: {state_name: (error_type, value)}
-    discrete_state_map: {state_name: discrete_states} (order matters)
-
-    state_info: {state_name: (discrete_states, error_type, error_value)}
+    Args:
+        states (arr): Array of State objects.
     """
 
     def __init__(self, states):
@@ -504,7 +505,9 @@ class SimContext():
         self.obs_states = [state for state in self.states if state.observed]
 
     def blank_tables(self):   
-
+        """
+        Return a set of blank tables to initialize an object.
+        """
         dim = [len(state.discrete_values) for state in self.obs_states]
         n = np.zeros(tuple(dim))
 
@@ -526,10 +529,22 @@ class SimContext():
 
         Q_obj = q_learn.Q(self.states)
 
+        # NOTE: not all 3 of these need to be returned, but becaue development of the 
+        # Q object was not complete the n and Q tables are also returned to avoid bugs.
         return [n, Q, Q_obj]
 
     def observe_state(self, agent, use_filter=False, method=None):
+        """
+        The method that is called to perform a state observation.
 
+        Args:
+            agent: TurbineAgent object.
+
+            use_filter (bool): Whether or not to filter state observations.
+
+            method: Optional routine to read state observation other than
+                the default method provided by the State object.
+        """
         state_values = []
 
 
@@ -561,16 +576,14 @@ class SimContext():
                 # move through old state value until a new one is ready
                 state_values.append(agent.state[i])
 
-            # agent.state = tuple(temp_state)
-            # agent.state_indices = self.get_state_indices(agent.state)
-
-        # #NOTE testing
-        # temp_state = [8,0,state_values[2]]
-        # return tuple(temp_state)
-
         return tuple(state_values)
 
     def modify_behavior(self, agent):
+        """
+        The method that is called to return a setpoint for a controllable state (e.g. the yaw angle).
+
+        agent: TurbineAgent object.
+        """
         wind_dir = 0
 
         # if wind direction and yaw angle are both states, yaw angle will need to be added to wind direction
@@ -590,7 +603,16 @@ class SimContext():
         return tuple(setpoints)
 
     def index_split(self, table, state_name="yaw_angle", state_map={"wind_speed":None, "wind_direction":None}):
+        """
+        Split a Q-table into a smaller Q-table around a given state.
 
+        Args:
+            table: Q-table.
+
+            state_name (string): The index to be split around.
+
+            state_map (dict): NOTE: this input is not used.
+        """
         before_indices = []
         after_indices = []
 
@@ -603,8 +625,7 @@ class SimContext():
                 append_array.append(state.get_index(state_map[state.name]))
             else:
                 append_array = after_indices
-        #print("before_indices: ", before_indices)
-        #print("after_indices: ", after_indices)
+
         for index in before_indices:
             sub_array = sub_array[index]
 
@@ -614,6 +635,12 @@ class SimContext():
         return sub_array
 
     def return_state(self, state_name):
+        """
+        Return a State object for a given state name.
+
+        Args:
+            state_name (string): State name.
+        """
         for state in self.states:
             if state.name == state_name:
                 return state
@@ -622,6 +649,16 @@ class SimContext():
         raise ValueError(error)
 
     def change_error(self, state_name, error_type, error_value):
+        """
+        Changes turbine error parameters.
+
+        Args:
+            state_name (string): State name.
+
+            error_type (int): Type of error.
+
+            error_value (double): Amount of error.
+        """
         state = self.return_state(state_name)
 
         state.error_type = error_type
@@ -630,6 +667,14 @@ class SimContext():
         return
 
     def get_state_indices(self, targets=None):
+        """
+        Get the indices into the discrete state space.
+
+        Args:
+            targets (tup): Target state to get indices for.
+                If None, state indices will be returned for 
+                the current state.
+        """
         state_indices = []
         for i,state in enumerate(self.obs_states):
             if targets is None:
@@ -640,7 +685,16 @@ class SimContext():
         return tuple(state_indices)
 
     def find(self, state_name, return_index=False):
+        """
+        Find a given state name in the state space, if valid.
 
+        Args:
+            state_name (string): State name.
+
+            return_index (bool): If True, will return the index
+                of the state in the state space if found, as 
+                opposed to a State object.
+        """
         for i,state in enumerate(self.states):
             if state.name == state_name:
                 if return_index:
@@ -651,17 +705,28 @@ class SimContext():
         return None
 
     def reset(self, fi):
-        # resets the fi object that the states are using to make measurements
+        """
+        Resets the fi object that the states are using to make measurements.
+
+        Args:
+            fi: FlorisInterface object.
+        """
         for state in self.states:
             # calling State.method with just fi will bypass the state measurement and will only reassign fi inside FlorisModel
             state.method(fi)
 
     def clear_bin_counts(self):
+        """
+        Clears filtering counters.
+        """
         for state in self.states:
             #print("Clearing bin_counts for", state.name)
             state.bin_counts.clear()
 
     def make_states_noisy(self):
+        """
+        Add noise to states for which it is applicable.
+        """
         for state in self.states:
             if state.name == "wind_speed":
                 state.noisy = True
@@ -700,11 +765,19 @@ def find_neighbors(turbine_agent):
                 if downwind_delta < 0:
                     if alias not in turbine_agent.reverse_neighbors: turbine_agent.reverse_neighbors.append(alias)
 
+# NOTE: the below code is less used, and was used more when function handles were passed directly
+# into the agent objects. Although not complete, the intent was to replace this with the
+# SimContext object that could be passed all at once into an agent, as opposed to multiple
+# function handles separately.
+
 # State observation functions
 
 def observe_turbine_state_yaw(turbine_agent):
     """
     Makes state observation of wind direction and turbine yaw, potentially adding a yaw error.
+
+    Args:
+        turbine_agent: A TurbineAgent object.
     """
     #print("ERROR TYPE:", turbine_agent.error_type)
     wind_dir = turbine_agent.model.fi.floris.farm.wind_direction
